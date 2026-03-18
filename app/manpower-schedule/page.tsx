@@ -69,9 +69,13 @@ export default function Page() {
   const startDateStr = searchParams.get("start");
   const endDateStr = searchParams.get("end");
 
+  // --- HUB STATES ---
+  const [mode, setMode] = useState<"hub" | "new" | "overview">("hub");
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [hasConfirmedBranch, setHasConfirmedBranch] = useState(false);
   const [hasConfirmedWeek, setHasConfirmedWeek] = useState(!!startDateStr);
+
+  // --- UI STATES ---
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -80,19 +84,27 @@ export default function Page() {
   );
   const [showRestRows, setShowRestRows] = useState(false);
 
+  // Sync week confirmation state with URL params
   useEffect(() => {
     setHasConfirmedWeek(!!startDateStr);
   }, [startDateStr]);
 
+  // Load persistence data
   useEffect(() => {
     if (hasConfirmedBranch && selectedBranch) {
       const savedSelections = localStorage.getItem(`manpower_selections_${selectedBranch}`);
       const savedNotes = localStorage.getItem(`manpower_notes_${selectedBranch}`);
       setSelections(savedSelections ? JSON.parse(savedSelections) : {});
       setNotes(savedNotes ? JSON.parse(savedNotes) : {});
+      
+      // If we are in 'overview' mode, start with editing disabled
+      if (mode === "overview") {
+        setEditingDays(DAYS.reduce((acc, day) => ({ ...acc, [day]: false }), {}));
+      }
     }
-  }, [hasConfirmedBranch, selectedBranch]);
+  }, [hasConfirmedBranch, selectedBranch, mode]);
 
+  // Save persistence data
   useEffect(() => {
     if (hasConfirmedBranch && selectedBranch) {
       localStorage.setItem(`manpower_selections_${selectedBranch}`, JSON.stringify(selections));
@@ -216,66 +228,87 @@ export default function Page() {
     );
   };
 
-  if (!hasConfirmedBranch) {
-    const branches = ["Subang Taipan", "Setia Alam", "Putrajaya", "Ampang", "Cyberjaya", "Klang", "Bandar Baru Bangi", "Shah Alam", "Bandar Rimbayu", "Kajang TTDI Groove", "Online", "Sri Petaling", "Kota Damansara", "Denai Alam", "Danau Kota", "Bandar Tun Hussein Onn", "Eco Grandeur", "Bandar Seri Putra", "Taman Sri Gombak", "Kota Warisan"];
+  // --- STEP 1: HUB CHOICE ---
+  if (mode === "hub") {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-        <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-extrabold text-gray-900">Branch Selector</h1>
-            <p className="text-gray-500 mt-2">Choose your location to start planning</p>
+        <div className="w-full max-w-2xl grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div 
+            onClick={() => setMode("overview")}
+            className="bg-white p-10 rounded-3xl shadow-xl border-4 border-transparent hover:border-blue-500 cursor-pointer transition-all flex flex-col items-center text-center group"
+          >
+            <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-6 text-3xl group-hover:bg-blue-600 group-hover:text-white transition-all">📊</div>
+            <h2 className="text-2xl font-bold text-gray-800">Overview</h2>
+            <p className="text-gray-500 mt-3">View existing schedules and previous planning data.</p>
           </div>
-          <div className="space-y-6">
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              className="w-full p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 outline-none font-medium transition-all"
-            >
-              <option value="">-- Select a Branch --</option>
-              {branches.map(branch => <option key={branch} value={branch}>{branch}</option>)}
-            </select>
-            <button
-              disabled={!selectedBranch}
-              onClick={() => setHasConfirmedBranch(true)}
-              className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:bg-gray-300 shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-0.5"
-            >
-              Continue to Date Selection
-            </button>
+          <div 
+            onClick={() => setMode("new")}
+            className="bg-white p-10 rounded-3xl shadow-xl border-4 border-transparent hover:border-green-500 cursor-pointer transition-all flex flex-col items-center text-center group"
+          >
+            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center mb-6 text-3xl group-hover:bg-green-600 group-hover:text-white transition-all">✍️</div>
+            <h2 className="text-2xl font-bold text-gray-800">Plan New</h2>
+            <p className="text-gray-500 mt-3">Start a new manpower schedule for your branch.</p>
           </div>
         </div>
       </div>
     );
   }
 
-  if (!hasConfirmedWeek) {
+  // --- STEP 2: BRANCH SELECTOR ---
+  if (!hasConfirmedBranch) {
+    const branches = ["Subang Taipan", "Setia Alam", "Putrajaya", "Ampang", "Cyberjaya", "Klang", "Bandar Baru Bangi", "Shah Alam", "Bandar Rimbayu", "Kajang TTDI Groove", "Online", "Sri Petaling", "Kota Damansara", "Denai Alam", "Danau Kota", "Bandar Tun Hussein Onn", "Eco Grandeur", "Bandar Seri Putra", "Taman Sri Gombak", "Kota Warisan"];
     return (
-      <div className="min-h-screen bg-gray-50 relative pt-20">
-        <button 
-          onClick={() => setHasConfirmedBranch(false)}
-          className="absolute top-8 left-8 flex items-center gap-2 text-blue-600 font-bold hover:underline"
-        >
-          ← Change Branch ({selectedBranch})
-        </button>
-        <WeekSelector onConfirm={(wd) => {
-          router.push(`/manpower-schedule?${wd}`);
-        }} />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6 relative">
+        <button onClick={() => setMode("hub")} className="absolute top-8 left-8 text-blue-600 font-bold hover:underline">← Back</button>
+        <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl border border-gray-100 text-center">
+          <h1 className="text-3xl font-extrabold text-gray-900 mb-8">Branch Selector</h1>
+          <select
+            value={selectedBranch}
+            onChange={(e) => setSelectedBranch(e.target.value)}
+            className="w-full p-4 border border-gray-200 rounded-xl bg-gray-50 outline-none font-medium mb-6"
+          >
+            <option value="">-- Select a Branch --</option>
+            {branches.map(branch => <option key={branch} value={branch}>{branch}</option>)}
+          </select>
+          <button
+            disabled={!selectedBranch}
+            onClick={() => setHasConfirmedBranch(true)}
+            className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 disabled:bg-gray-300 transition-all"
+          >
+            Continue
+          </button>
+        </div>
       </div>
     );
   }
 
+  // --- STEP 3: WEEK SELECTOR ---
+  if (!hasConfirmedWeek) {
+    return (
+      <div className="min-h-screen bg-gray-50 relative pt-20">
+        <button onClick={() => setHasConfirmedBranch(false)} className="absolute top-8 left-8 text-blue-600 font-bold hover:underline">← Change Branch</button>
+        <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-gray-800 italic">Branch: {selectedBranch}</h1>
+            <p className="text-gray-500">Choose the week to {mode === "overview" ? "view" : "plan"}</p>
+        </div>
+        <WeekSelector onConfirm={(wd) => router.push(`/manpower-schedule?${wd}`)} />
+      </div>
+    );
+  }
+
+  // --- STEP 4: MAIN TABLE ---
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg">
         <div className="flex justify-between items-center px-4 py-6">
           <div className="flex items-center gap-4">
+            <button onClick={() => setMode("hub")} className="text-2xl hover:scale-110 transition-transform">🏠</button>
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold tracking-tight">Manpower Planning</h1>
-                <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border border-white/30">
-                  {selectedBranch}
-                </span>
+                <h1 className="text-3xl font-bold tracking-tight">{mode === "overview" ? "Overview" : "Manpower Planning"}</h1>
+                <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold uppercase border border-white/30">{selectedBranch}</span>
               </div>
-              <p className="text-blue-100 mt-1">{weekLabel ? `Schedule for ${weekLabel}` : "Manage assignments"}</p>
+              <p className="text-blue-100 mt-1">{weekLabel ? `Schedule for ${weekLabel}` : ""}</p>
             </div>
           </div>
           <UserHeader userName="Admin User" userRole="SUPER_ADMIN" userEmail="admin@ebright.com" />
@@ -284,8 +317,14 @@ export default function Page() {
 
       <div className="flex h-[calc(100vh-100px)]">
         <Sidebar sidebarOpen={sidebarOpen} onCollapse={() => setSidebarOpen(false)} />
-        
-        <div className="flex-1 overflow-y-auto px-8 py-8 bg-gradient-to-br from-[#f0f4f8] to-[#d2dce9]">
+        <main className="flex-1 overflow-y-auto px-8 py-8 bg-gradient-to-br from-[#f0f4f8] to-[#d2dce9]">
+          
+          {mode === "overview" && (
+            <div className="mb-6 bg-blue-50 border-l-4 border-blue-400 p-4 text-blue-700 font-medium rounded shadow-sm italic">
+                You are currently in Overview Mode. Use the Edit buttons below to modify existing data.
+            </div>
+          )}
+
           {DAYS.map((day) => {
             const isEditing = !!editingDays[day];
             let currentDayDate = "";
@@ -297,80 +336,75 @@ export default function Page() {
 
             return (
               <div key={day} className="mx-auto mb-8 w-full max-w-[95%] overflow-hidden rounded-[15px] border border-gray-200 bg-white shadow-xl">
-          <header className="border-b border-gray-100 bg-white px-8 py-6 flex justify-between items-center">
-            <div>
-              <h1 className="text-[1.5rem] font-semibold text-[#1a1d23]">{day}</h1>
-              <p className="text-[0.9rem] text-[#5f6368]">{currentDayDate}</p>
-            </div>
-            <div className="flex items-center gap-6 text-blue-600 text-xs font-bold uppercase tracking-widest">
-              <button onClick={() => clearAllForDay(day)} disabled={!isEditing} className="text-red-500 hover:text-red-700 disabled:opacity-30">Clear All</button>
-              <button onClick={() => setShowRestRows(!showRestRows)}>{showRestRows ? 'Hide Rest Times' : 'Show Rest Times'}</button>
-            </div>
-          </header>
+                <header className="border-b border-gray-100 bg-white px-8 py-6 flex justify-between items-center">
+                  <div>
+                    <h1 className="text-[1.5rem] font-semibold text-[#1a1d23]">{day}</h1>
+                    <p className="text-[0.9rem] text-[#5f6368]">{currentDayDate}</p>
+                  </div>
+                  <div className="flex items-center gap-6 text-blue-600 text-xs font-bold uppercase tracking-widest">
+                    <button onClick={() => clearAllForDay(day)} disabled={!isEditing} className="text-red-500 hover:text-red-700 disabled:opacity-30">Clear All</button>
+                    <button onClick={() => setShowRestRows(!showRestRows)}>{showRestRows ? 'Hide Rest' : 'Show Rest'}</button>
+                  </div>
+                </header>
 
-          <div className="w-full overflow-x-auto overflow-y-auto max-h-[70vh]">
-            <table className="border-separate border-spacing-0 table-fixed" style={{ width: '2350px' }}>
-              <thead className="sticky top-0 z-40 bg-white shadow-sm">
-                <tr>
-            <th className="sticky left-0 top-0 z-50 w-[250px] bg-[#2c3e50] text-white p-4 text-left border border-slate-600">Time Slot</th>
-            {COLUMNS.map((col) => (
-              <th key={col.id} className="w-[180px] bg-[#34495e] text-white p-3 border border-slate-600 text-center">
-                <div className="flex flex-col items-center justify-between h-full min-h-[50px]">
-                  <span className="text-sm font-bold uppercase block">{col.label}</span>
-                  <button onClick={() => clearColumnForDay(day, col.id)} disabled={!isEditing} className="mt-1 text-[9px] text-red-300 font-bold uppercase tracking-tighter hover:text-red-500 disabled:opacity-0">[ Clear Column ]</button>
+                <div className="w-full overflow-x-auto overflow-y-auto max-h-[70vh]">
+                  <table className="border-separate border-spacing-0 table-fixed" style={{ width: '2350px' }}>
+                    <thead className="sticky top-0 z-40 bg-white shadow-sm">
+                      <tr>
+                        <th className="sticky left-0 top-0 z-50 w-[250px] bg-[#2c3e50] text-white p-4 text-left border border-slate-600">Time Slot</th>
+                        {COLUMNS.map((col) => (
+                          <th key={col.id} className="w-[180px] bg-[#34495e] text-white p-3 border border-slate-600 text-center uppercase text-sm font-bold">
+                            {col.label}
+                          </th>
+                        ))}
+                        <th className="w-[300px] bg-[#34495e] text-white p-4 border border-slate-600">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getTimeSlotsForDay(day).filter(slot => !isAdminSlot(slot) || showRestRows).map((slot) => {
+                        const selectedInRow = COLUMNS.map(col => selections[`${day}-${slot}-${col.id}`]).filter(Boolean);
+                        return (
+                          <tr key={slot} className={`hover:bg-blue-50/50 ${isAdminSlot(slot) ? 'bg-gray-100' : ''}`}>
+                            <td className="sticky left-0 z-20 w-[250px] bg-white border border-gray-200 p-4 font-semibold text-slate-700">{slot}</td>
+                            {COLUMNS.map((col) => {
+                              const selectedName = selections[`${day}-${slot}-${col.id}`] || "";
+                              const selectStyles = selectedName ? (EMPLOYEE_COLORS[selectedName] || "bg-blue-400 text-white shadow-sm") : "bg-gray-50 text-gray-400 border-gray-200";
+                              return (
+                                <td key={col.id} className="p-3 border border-gray-200 w-[180px]">
+                                  <select
+                                    disabled={!isEditing}
+                                    value={selectedName}
+                                    onChange={(e) => handleNameSelect(day, slot, col.id, e.target.value)}
+                                    className={`w-full appearance-none rounded-md border py-2.5 text-sm text-center outline-none ${selectStyles}`}
+                                    style={{ backgroundImage: `url("${selectedName ? SELECT_ARROW_WHITE : SELECT_ARROW_DARK}")`, backgroundPosition: "right 0.6rem center", backgroundRepeat: "no-repeat", textAlignLast: "center" }}
+                                  >
+                                    <option value="">None</option>
+                                    {SHARED_EMPLOYEES.map(name => (
+                                      <option key={name} value={name} disabled={selectedInRow.includes(name) && selectedName !== name}>{name}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              );
+                            })}
+                            <td className="p-3 border border-gray-200 w-[300px]">
+                              <textarea disabled={!isEditing} className="w-full text-sm text-center outline-none bg-transparent resize-none" rows={2} placeholder="..." value={notes[`${day}-${slot}-notes`] || ""} onChange={(e) => handleNoteChange(day, slot, e.target.value)} />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              </th>
-            ))}
-            <th className="w-[300px] bg-[#34495e] text-white p-4 border border-slate-600">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {getTimeSlotsForDay(day).filter(slot => !isAdminSlot(slot) || showRestRows).map((slot) => {
-            const selectedInRow = COLUMNS.map(col => selections[`${day}-${slot}-${col.id}`]).filter(Boolean);
-            return (
-              <tr key={slot} className={`hover:bg-blue-50/50 ${isAdminSlot(slot) ? 'bg-gray-100' : ''}`}>
-                <td className="sticky left-0 z-20 w-[250px] bg-white border border-gray-200 p-4 font-semibold text-slate-700 shadow-[1px_0_0_0_#e2e8f0]">{slot}</td>
-                {COLUMNS.map((col) => {
-                  const selectedName = selections[`${day}-${slot}-${col.id}`] || "";
-                  const selectStyles = selectedName ? (EMPLOYEE_COLORS[selectedName] || "bg-blue-400 text-white shadow-sm font-semibold") : "bg-gray-50 text-gray-400 border-gray-200";
-                  const arrow = selectedName ? SELECT_ARROW_WHITE : SELECT_ARROW_DARK;
-                  return (
-              <td key={col.id} className="p-3 border border-gray-200 w-[180px]">
-                <select
-                  disabled={!isEditing}
-                  value={selectedName}
-                  onChange={(e) => handleNameSelect(day, slot, col.id, e.target.value)}
-                  className={`w-full appearance-none rounded-md border py-2.5 text-sm text-center outline-none ${selectStyles}`}
-                  style={{ backgroundImage: `url("${arrow}")`, backgroundPosition: "right 0.6rem center", backgroundRepeat: "no-repeat", textAlignLast: "center" }}
-                >
-                  <option value="" className="bg-white text-gray-500 italic">None</option>
-                  {SHARED_EMPLOYEES.map(name => {
-                    const disabled = selectedInRow.includes(name) && selectedName !== name;
-                    return <option key={name} value={name} disabled={disabled} className={disabled ? "text-gray-400 bg-gray-100" : "text-slate-800 bg-white"}>{name}</option>;
-                  })}
-                </select>
-              </td>
-                  );
-                })}
-                <td className="p-3 border border-gray-200 w-[300px]">
-                  <textarea disabled={!isEditing} className={`w-full text-sm text-center outline-none bg-transparent placeholder-slate-300 resize-none overflow-y-auto ${!isEditing ? "opacity-50 cursor-not-allowed" : ""}`} rows={2} placeholder="Add notes..." value={notes[`${day}-${slot}-notes`] || ""} onChange={(e) => handleNoteChange(day, slot, e.target.value)} style={{ minHeight: '40px' }} />
-                </td>
-              </tr>
-            );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="p-6 flex justify-end bg-gray-50 border-t border-gray-100">
-            {isEditing ? <button onClick={() => handleSaveDay(day)} className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all">Update & Save</button> : <button onClick={() => setEditingDays(p => ({...p, [day]: true}))} className="text-blue-600 font-bold border-2 border-blue-600 px-8 py-2.5 rounded-lg hover:bg-blue-50 transition-all">Edit Schedule</button>}
-          </div>
+                <div className="p-6 flex justify-end bg-gray-50 border-t border-gray-100">
+                  {isEditing ? <button onClick={() => handleSaveDay(day)} className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-bold">Update & Save</button> : <button onClick={() => setEditingDays(p => ({...p, [day]: true}))} className="text-blue-600 font-bold border-2 border-blue-600 px-8 py-2.5 rounded-lg">Edit Schedule</button>}
+                </div>
               </div>
             );
           })}
           <SummaryTable title={`Overall Weekly Summary (${weekLabel})`} data={calculateStaffHours()} />
           <SummaryTable title="Weekday Summary (Wed–Fri)" data={calculateStaffHours(WEEKDAY_DAYS)} />
           <SummaryTable title="Weekend Summary (Sat–Sun)" data={calculateStaffHours(["Saturday", "Sunday"])} />
-        </div>
+        </main>
       </div>
     </div>
   );
