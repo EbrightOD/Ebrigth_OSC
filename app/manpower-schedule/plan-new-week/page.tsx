@@ -96,6 +96,8 @@ function PlanNewWeekPage() {
   const [branchManagerData, setBranchManagerData] = useState<Record<string, string[]>>({});
   const [columnReplacementBranch, setColumnReplacementBranch] = useState<Record<string, string>>({});
   const [managerReplacementBranch, setManagerReplacementBranch] = useState<Record<string, string>>({});
+  // branch → set of employee names already assigned in their saved schedule for this week
+  const [scheduledElsewhere, setScheduledElsewhere] = useState<Record<string, Set<string>>>({});
 
   // --- NEW AUTOMATION FOR BRANCH MANAGERS ---
   useEffect(() => {
@@ -149,6 +151,28 @@ function PlanNewWeekPage() {
     };
     fetchStaff();
   }, []);
+
+  // Fetch saved schedules for this week to detect cross-branch conflicts
+  useEffect(() => {
+    if (!startDateStr) return;
+    const fetchSavedSchedules = async () => {
+      try {
+        const res = await fetch('/api/get-schedules');
+        const data = await res.json();
+        if (!data.success) return;
+        const map: Record<string, Set<string>> = {};
+        data.schedules.forEach((s: any) => {
+          if (s.startDate !== startDateStr || s.branch === selectedBranch) return;
+          const names = new Set<string>(
+            Object.values(s.selections || {}).filter((v: any) => v && v !== "None") as string[]
+          );
+          if (names.size > 0) map[s.branch] = names;
+        });
+        setScheduledElsewhere(map);
+      } catch {}
+    };
+    fetchSavedSchedules();
+  }, [startDateStr, selectedBranch]);
 
   // Format Helper
   const getDateForDay = (dayName: string) => {
@@ -520,11 +544,19 @@ function PlanNewWeekPage() {
                                           className={`w-full p-2 rounded appearance-none text-center font-bold transition-all text-xs ${val ? getEmployeeColor(val) : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
                                           style={{ backgroundImage: `url("${val ? SELECT_ARROW_WHITE : SELECT_ARROW_DARK}")`, backgroundPosition: "right 0.3rem center", backgroundSize: "8px", backgroundRepeat: "no-repeat" }}>
                                           <option value="">None</option>
-                                          {colStaffList.map(e => (
-                                            <option key={e} value={e} disabled={namesUsedInOtherColumns.has(e)} className="text-slate-800 font-bold">
-                                              {e}
-                                            </option>
-                                          ))}
+                                          {colStaffList.map(e => {
+                                            const usedInCol = namesUsedInOtherColumns.has(e);
+                                            // find which branch already has this employee scheduled this week
+                                            const conflictBranch = replacementBranch
+                                              ? Object.entries(scheduledElsewhere).find(([, names]) => names.has(e))?.[0]
+                                              : undefined;
+                                            const isConflict = !!conflictBranch;
+                                            return (
+                                              <option key={e} value={e} disabled={usedInCol || isConflict} className="text-slate-800 font-bold">
+                                                {isConflict ? `${e} (at ${conflictBranch})` : e}
+                                              </option>
+                                            );
+                                          })}
                                         </select>
                                       </td>
                                     );
