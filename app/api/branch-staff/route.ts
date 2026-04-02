@@ -17,3 +17,22 @@ export async function GET() {
     return NextResponse.json({ error: "Failed to fetch" }, { status: 500 });
   }
 }
+
+// ADD A NEW EMPLOYEE TO A BRANCH
+export async function POST(request: Request) {
+  try {
+    const { name, branch } = await request.json();
+    if (!name?.trim() || !branch) {
+      return NextResponse.json({ error: "Name and branch are required" }, { status: 400 });
+    }
+    const employee = await prisma.employee.create({
+      data: { name: name.trim(), branch }
+    });
+    return NextResponse.json({ success: true, employee });
+  } catch (error: any) {
+    if (error.code === "P2002") {
+      return NextResponse.json({ error: "This employee already exists in this branch" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Failed to create employee" }, { status: 500 });
+  }
+}

@@ -100,6 +100,12 @@ function PlanNewWeekPage() {
   // branch → set of employee names already assigned in their saved schedule for this week
   const [scheduledElsewhere, setScheduledElsewhere] = useState<Record<string, Record<string, Set<string>>>>({});
 
+  // --- ADD EMPLOYEE MODAL ---
+  const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
+  const [newEmployeeName, setNewEmployeeName] = useState("");
+  const [addEmployeeError, setAddEmployeeError] = useState("");
+  const [isAddingEmployee, setIsAddingEmployee] = useState(false);
+
   // --- NEW AUTOMATION FOR BRANCH MANAGERS ---
   useEffect(() => {
     if (session?.user) {
@@ -152,27 +158,24 @@ function PlanNewWeekPage() {
     localStorage.setItem(draftKey, JSON.stringify({ selections, notes }));
   }, [selections, notes, selectedBranch, startDateStr, isLocked]);
 
-  useEffect(() => {
-    const fetchStaff = async () => {
-      const res = await fetch('/api/branch-staff');
-      const staffList = await res.json();
+  const fetchStaff = async () => {
+    const res = await fetch('/api/branch-staff');
+    const staffList = await res.json();
+    const grouped: Record<string, string[]> = {};
+    const managers: Record<string, string[]> = {};
+    staffList.forEach((s: any) => {
+      if (!grouped[s.branch]) grouped[s.branch] = [];
+      grouped[s.branch].push(s.name);
+      if (s.role && s.role.startsWith('branch_manager')) {
+        if (!managers[s.branch]) managers[s.branch] = [];
+        managers[s.branch].push(s.name);
+      }
+    });
+    setBranchStaffData(grouped);
+    setBranchManagerData(managers);
+  };
 
-      const grouped: Record<string, string[]> = {};
-      const managers: Record<string, string[]> = {};
-      staffList.forEach((s: any) => {
-        if (!grouped[s.branch]) grouped[s.branch] = [];
-        grouped[s.branch].push(s.name);
-
-        if (s.role && s.role.startsWith('branch_manager')) {
-          if (!managers[s.branch]) managers[s.branch] = [];
-          managers[s.branch].push(s.name);
-        }
-      });
-      setBranchStaffData(grouped);
-      setBranchManagerData(managers);
-    };
-    fetchStaff();
-  }, []);
+  useEffect(() => { fetchStaff(); }, []);
 
   // Fetch saved schedules for this week to detect cross-branch conflicts
   useEffect(() => {
@@ -348,6 +351,28 @@ function PlanNewWeekPage() {
     }
   };
 
+  const handleAddEmployee = async () => {
+    if (!newEmployeeName.trim()) { setAddEmployeeError("Name cannot be empty."); return; }
+    setIsAddingEmployee(true);
+    setAddEmployeeError("");
+    try {
+      const res = await fetch('/api/branch-staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newEmployeeName.trim(), branch: selectedBranch }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAddEmployeeError(data.error || "Failed to add employee."); return; }
+      await fetchStaff();
+      setNewEmployeeName("");
+      setShowAddEmployeeModal(false);
+    } catch {
+      setAddEmployeeError("Something went wrong. Please try again.");
+    } finally {
+      setIsAddingEmployee(false);
+    }
+  };
+
   const branchSpecificStaff = branchStaffData[selectedBranch] || [];
   const activeStaffList = Array.from(new Set([...SHARED_EMPLOYEES, ...branchSpecificStaff]));
 
@@ -403,15 +428,25 @@ function PlanNewWeekPage() {
                 </h1>
             </div>
 
-            {/* ONLY show "Change Branch" if they are NOT a Branch Manager */}
-            {hasConfirmedBranch && !hasConfirmedWeek && userRole !== "BRANCH_MANAGER" && (
-              <button 
-                onClick={() => setHasConfirmedBranch(false)} 
-                className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-6 py-3 rounded-xl font-bold uppercase transition-colors shadow-sm"
-              >
-                ← Change Branch
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {hasConfirmedBranch && hasConfirmedWeek && !isLocked && (
+                <button
+                  onClick={() => { setShowAddEmployeeModal(true); setNewEmployeeName(""); setAddEmployeeError(""); }}
+                  className="bg-green-600 text-white px-5 py-3 rounded-xl font-black uppercase text-sm tracking-wide hover:bg-green-700 transition-colors shadow-sm flex items-center gap-2"
+                >
+                  + Add Employee
+                </button>
+              )}
+              {/* ONLY show "Change Branch" if they are NOT a Branch Manager */}
+              {hasConfirmedBranch && !hasConfirmedWeek && userRole !== "BRANCH_MANAGER" && (
+                <button
+                  onClick={() => setHasConfirmedBranch(false)}
+                  className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-6 py-3 rounded-xl font-bold uppercase transition-colors shadow-sm"
+                >
+                  ← Change Branch
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -674,6 +709,48 @@ function PlanNewWeekPage() {
           )}
         </div>
       </main>
+
+      {/* ADD EMPLOYEE MODAL */}
+      {showAddEmployeeModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white p-8 rounded-[2rem] shadow-2xl border border-slate-100 w-full max-w-sm flex flex-col gap-5">
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight text-center">Add Employee</h2>
+            <div className="text-xs text-slate-500 text-center font-bold uppercase tracking-widest bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
+              Branch: {selectedBranch}
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-black uppercase text-slate-500">Full Name</label>
+              <input
+                type="text"
+                value={newEmployeeName}
+                onChange={(e) => { setNewEmployeeName(e.target.value); setAddEmployeeError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAddEmployee(); }}
+                placeholder="e.g. Ahmad Bin Ali"
+                className="w-full p-3 border-2 border-slate-200 rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-green-500 transition-colors"
+                autoFocus
+              />
+              {addEmployeeError && (
+                <p className="text-xs text-red-500 font-bold">{addEmployeeError}</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowAddEmployeeModal(false)}
+                className="flex-1 py-3 bg-slate-200 text-slate-700 font-black rounded-xl hover:bg-slate-300 uppercase tracking-widest text-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddEmployee}
+                disabled={isAddingEmployee}
+                className="flex-1 py-3 bg-green-600 text-white font-black rounded-xl hover:bg-green-700 disabled:bg-slate-300 uppercase tracking-widest text-sm transition-colors"
+              >
+                {isAddingEmployee ? "Saving..." : "Add"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
