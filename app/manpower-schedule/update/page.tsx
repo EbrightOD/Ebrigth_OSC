@@ -216,6 +216,14 @@ export default function UpdateSchedulePage() {
     });
   };
 
+  const clearManagerForDay = (day: string) => {
+    setUpdatedSelections(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(key => { if (key.startsWith(`${day}-`) && key.endsWith(`-MANAGER`)) delete next[key]; });
+      return next;
+    });
+  };
+
   const handleClearColumn = (day: string, colId: string) => {
     setUpdatedSelections(prev => {
       const next = { ...prev };
@@ -484,6 +492,7 @@ export default function UpdateSchedulePage() {
                                         <option key={b} value={b}>{b}</option>
                                       ))}
                                     </select>
+                                    <button onClick={() => clearManagerForDay(day)} className="text-[7px] text-orange-300 font-bold hover:text-white uppercase px-2 py-0.5 rounded transition-colors bg-slate-600">CLEAR</button>
                                   </div>
                                 </th>
                                 {COLUMNS.map(c => (

@@ -233,6 +233,15 @@ function PlanNewWeekPage() {
     }
   };
 
+  const clearManagerForDay = (day: string) => {
+    if (isLocked) return;
+    setSelections((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => { if (key.startsWith(`${day}-`) && key.endsWith(`-MANAGER`)) delete next[key]; });
+      return next;
+    });
+  };
+
   const clearColumnForDay = (day: string, columnId: string) => {
     if (isLocked) return;
     setSelections((prev) => {
@@ -492,7 +501,9 @@ function PlanNewWeekPage() {
                                     ))}
                                   </select>
                                 )}
-                                {/* No CLEAR button for Manager — only 2 slots, easy to clear manually */}
+                                {!isLocked && isEditing && (
+                                  <button onClick={() => clearManagerForDay(day)} className="text-[8px] text-orange-300 font-bold hover:text-white uppercase px-2 py-0.5 rounded transition-colors bg-slate-600">CLEAR</button>
+                                )}
                               </div>
                             </th>
                             {COLUMNS.map(col => (
