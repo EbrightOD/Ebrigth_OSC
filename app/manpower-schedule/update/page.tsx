@@ -11,9 +11,7 @@ import Sidebar from "@/app/components/Sidebar";
 
 // --- IMPORT SHARED CONSTANTS ---
 import {
-  SHARED_EMPLOYEES, ALL_BRANCHES,
-  COLUMNS,
-  SHARED_EMPLOYEES,
+  SHARED_EMPLOYEES, ALL_BRANCHES, COLUMNS,
   getTimeSlotsForDay, isAdminSlot, getStaffColorByIndex,
   getWorkingDaysForBranch, isOpeningClosingSlot,
   isManagerOnDutySlot,
