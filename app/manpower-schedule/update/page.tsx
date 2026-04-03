@@ -140,7 +140,7 @@ export default function UpdateSchedulePage() {
       }
     };
     const fetchStaff = async () => {
-      const res = await fetch('/api/employees');
+      const res = await fetch('/api/branch-staff');
       const staffList = await res.json();
       if (!Array.isArray(staffList)) return;
       const grouped: Record<string, string[]> = {};
@@ -149,7 +149,7 @@ export default function UpdateSchedulePage() {
         if (!s.branch) return;
         if (!grouped[s.branch]) grouped[s.branch] = [];
         grouped[s.branch].push(s.name);
-        if (s.position?.toLowerCase().includes('branch manager')) {
+        if (s.role && s.role.startsWith('branch_manager')) {
           if (!managers[s.branch]) managers[s.branch] = [];
           managers[s.branch].push(s.name);
         }

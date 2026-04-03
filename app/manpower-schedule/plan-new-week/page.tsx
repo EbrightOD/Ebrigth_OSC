@@ -159,7 +159,7 @@ function PlanNewWeekPage() {
   }, [selections, notes, selectedBranch, startDateStr, isLocked]);
 
   const fetchStaff = async () => {
-    const res = await fetch('/api/employees');
+    const res = await fetch('/api/branch-staff');
     const staffList = await res.json();
     if (!Array.isArray(staffList)) return;
     const grouped: Record<string, string[]> = {};
@@ -168,7 +168,7 @@ function PlanNewWeekPage() {
       if (!s.branch) return;
       if (!grouped[s.branch]) grouped[s.branch] = [];
       grouped[s.branch].push(s.name);
-      if (s.position?.toLowerCase().includes('branch manager')) {
+      if (s.role && s.role.startsWith('branch_manager')) {
         if (!managers[s.branch]) managers[s.branch] = [];
         managers[s.branch].push(s.name);
       }
@@ -691,7 +691,7 @@ function PlanNewWeekPage() {
               {!isLocked && (
                 <div className="mt-16 text-center pb-10">
                    <button onClick={handleFinalSubmit} className="bg-green-600 hover:bg-green-700 text-white px-20 py-5 rounded-2xl text-xl font-black shadow-xl uppercase tracking-widest transition-transform hover:scale-105">
-                      🚀 Final Submit & Archive
+                     🚀 Final Submit & Archive
                    </button>
                 </div>
               )}
