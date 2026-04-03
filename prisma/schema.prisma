@@ -84,14 +84,3 @@ model BranchStaff {
 
   @@map("BranchStaff")
 }
-
-model Employee {
-  id        Int       @id @default(autoincrement())
-  name      String
-  nickname  String?
-  branch    String
-  position  String?
-  createdAt DateTime? @default(now()) @db.Timestamp(6)
-
-  @@unique([name, branch])
-}
