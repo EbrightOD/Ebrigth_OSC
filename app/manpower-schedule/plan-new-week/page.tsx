@@ -97,6 +97,7 @@ function PlanNewWeekPage() {
   const [branchManagerData, setBranchManagerData] = useState<Record<string, string[]>>({});
   const [columnReplacementBranch, setColumnReplacementBranch] = useState<Record<string, string>>({});
   const [managerReplacementBranch, setManagerReplacementBranch] = useState<Record<string, string>>({});
+  const [selectedDay, setSelectedDay] = useState<string>("");
   // branch → set of employee names already assigned in their saved schedule for this week
   const [scheduledElsewhere, setScheduledElsewhere] = useState<Record<string, Record<string, Set<string>>>>({});
 
@@ -178,6 +179,14 @@ function PlanNewWeekPage() {
   };
 
   useEffect(() => { fetchStaff(); }, []);
+
+  // Set initial selected day when branch is confirmed
+  useEffect(() => {
+    if (hasConfirmedBranch && selectedBranch) {
+      const days = getWorkingDaysForBranch(selectedBranch);
+      if (days.length > 0) setSelectedDay(d => d && days.includes(d) ? d : days[0]);
+    }
+  }, [hasConfirmedBranch, selectedBranch]);
 
   // Fetch saved schedules for this week to detect cross-branch conflicts
   useEffect(() => {
@@ -378,6 +387,14 @@ function PlanNewWeekPage() {
   const branchSpecificStaff = branchStaffData[selectedBranch] || [];
   const activeStaffList = Array.from(new Set([...SHARED_EMPLOYEES, ...branchSpecificStaff]));
 
+  const dayHasData = (day: string) => Object.keys(selections).some(k => k.startsWith(`${day}-`));
+
+  const getStaffColor = (name: string) => {
+    if (!name || name === "None") return "bg-white border border-slate-200 text-slate-400";
+    const idx = activeStaffList.indexOf(name);
+    return getEmployeeColor(idx >= 0 ? activeStaffList[idx] : name);
+  };
+
   // Safely check role for UI tweaks
   const userRole = (session?.user as any)?.role || "USER";
 
@@ -469,7 +486,7 @@ function PlanNewWeekPage() {
           ) : (
 
             // STEP 3: THE ACTUAL TABLES
-            <div className="space-y-10">
+            <div className="space-y-6">
               {isLocked && (
                  <div className="bg-slate-800 text-white p-4 rounded-xl flex justify-between items-center shadow-xl">
                    <span className="font-bold uppercase tracking-widest text-sm">🔒 Archived Record (Read-Only)</span>
@@ -477,7 +494,35 @@ function PlanNewWeekPage() {
                  </div>
               )}
 
-              {getWorkingDaysForBranch(selectedBranch).map((day) => {
+              {/* DAY TAB BUTTONS */}
+              <div className="flex gap-2 flex-wrap">
+                {getWorkingDaysForBranch(selectedBranch).map((day) => {
+                  const isActive = selectedDay === day;
+                  const hasData = dayHasData(day);
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => setSelectedDay(day)}
+                      className={`relative px-6 py-3 rounded-xl font-black uppercase text-sm tracking-wide transition-all shadow-sm ${
+                        isActive
+                          ? "bg-[#2D3F50] text-white shadow-lg scale-105"
+                          : hasData
+                          ? "bg-blue-50 text-blue-700 border-2 border-blue-300 hover:bg-blue-100"
+                          : "bg-white text-slate-500 border-2 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {day.slice(0, 3)}
+                      {hasData && (
+                        <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${isActive ? "bg-green-400" : "bg-blue-500"}`} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* SINGLE DAY TABLE */}
+              {selectedDay && (() => {
+                const day = selectedDay;
                 const isEditing = !!editingDays[day] && !isLocked;
                 const daySlots = getTimeSlotsForDay(day, selectedBranch);
                 return (
@@ -581,7 +626,7 @@ function PlanNewWeekPage() {
                                       onChange={(e) => handleNameSelect(day, slot, "MANAGER", e.target.value)}
                                       className={`w-full p-2 rounded text-center font-bold text-xs appearance-none transition-all ${
                                         managerVal
-                                          ? getEmployeeColor(managerVal)
+                                          ? getStaffColor(managerVal)
                                           : 'border border-emerald-200 bg-white text-slate-700'
                                       }`}
                                       style={{
@@ -650,7 +695,7 @@ function PlanNewWeekPage() {
                                     return (
                                       <td key={col.id} className={`p-1.5 border-l ${col.type === 'exec' ? 'bg-slate-50' : ''}`}>
                                         <select disabled={!isEditing} value={val} onChange={(e) => handleNameSelect(day, slot, col.id, e.target.value)}
-                                          className={`w-full p-2 rounded appearance-none text-center font-bold transition-all text-xs ${val ? getEmployeeColor(val) : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
+                                          className={`w-full p-2 rounded appearance-none text-center font-bold transition-all text-xs ${val ? getStaffColor(val) : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
                                           style={{ backgroundImage: `url("${val ? SELECT_ARROW_WHITE : SELECT_ARROW_DARK}")`, backgroundPosition: "right 0.3rem center", backgroundSize: "8px", backgroundRepeat: "no-repeat" }}>
                                           <option value="">None</option>
                                           {colStaffList.map(e => {
@@ -684,7 +729,7 @@ function PlanNewWeekPage() {
                     </div>
                   </div>
                 );
-              })}
+              })()}
 
               <SummaryTable title="Weekly Hours Summary" data={calculateStaffHours()} />
 
