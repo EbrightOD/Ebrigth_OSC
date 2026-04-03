@@ -55,6 +55,26 @@ export function getEmployeeColor(name: string): string {
   return COLOR_PALETTE[colorIndex];
 }
 
+export const STAFF_COLORS = [
+  "bg-red-500 text-white", "bg-orange-500 text-white", "bg-amber-500 text-black",
+  "bg-lime-600 text-white", "bg-green-600 text-white", "bg-emerald-500 text-white",
+  "bg-teal-600 text-white", "bg-cyan-600 text-white", "bg-sky-500 text-white",
+  "bg-blue-600 text-white", "bg-indigo-600 text-white", "bg-violet-600 text-white",
+  "bg-purple-600 text-white", "bg-fuchsia-600 text-white", "bg-pink-600 text-white",
+  "bg-rose-600 text-white", "bg-red-700 text-white", "bg-orange-700 text-white",
+  "bg-yellow-600 text-white", "bg-green-700 text-white", "bg-teal-700 text-white",
+  "bg-blue-700 text-white", "bg-indigo-700 text-white", "bg-violet-700 text-white",
+  "bg-pink-700 text-white", "bg-rose-700 text-white", "bg-cyan-700 text-white",
+  "bg-sky-700 text-white", "bg-emerald-700 text-white", "bg-purple-700 text-white",
+];
+
+export function getStaffColorByIndex(name: string, staffList: string[]): string {
+  if (!name || name === "None") return "bg-white border border-slate-200 text-slate-400";
+  const idx = staffList.indexOf(name);
+  if (idx >= 0) return STAFF_COLORS[idx % STAFF_COLORS.length];
+  return getEmployeeColor(name);
+}
+
 // --- TABLE CONFIGURATION ---
 export const COLUMNS = [
   { id: "coach1", label: "Coach 1", type: "coach" as const },

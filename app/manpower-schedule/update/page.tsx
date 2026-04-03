@@ -13,9 +13,10 @@ import Sidebar from "@/app/components/Sidebar";
 import {
   SHARED_EMPLOYEES, ALL_BRANCHES,
   COLUMNS,
-  getTimeSlotsForDay, isAdminSlot, getEmployeeColor,
+  SHARED_EMPLOYEES,
+  getTimeSlotsForDay, isAdminSlot, getStaffColorByIndex,
   getWorkingDaysForBranch, isOpeningClosingSlot,
-  isManagerOnDutySlot, // <-- NEW IMPORT
+  isManagerOnDutySlot,
 } from "@/lib/manpowerUtils";
 
 // --- DATE FORMATTING HELPERS ---
@@ -321,7 +322,7 @@ export default function UpdateSchedulePage() {
       <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
         <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
         
-        <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 0.9 }}>
+        <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 1.0 }}>
           
           <div className="shrink-0 w-full mx-auto px-4 md:px-6 pt-4 md:pt-6 z-50 bg-slate-50">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center gap-6 mb-6">
@@ -396,7 +397,7 @@ export default function UpdateSchedulePage() {
                             Planning
                         </div>
                         <div className="overflow-x-auto border rounded relative">
-                          <table className="w-full border-collapse text-[9px]" style={{ minWidth: '1700px' }}>
+                          <table className="w-full border-collapse text-[11px]" style={{ minWidth: '1700px' }}>
                             <thead>
                               <tr className="bg-slate-700 text-white text-center h-[40px]">
                                 <th className="p-1 border border-slate-600 w-32 sticky left-0 z-20 bg-slate-700">
@@ -434,7 +435,7 @@ export default function UpdateSchedulePage() {
                                       <td className="p-1 border bg-emerald-50 text-center font-bold align-middle h-[32px]">
                                         {showManagerPlanning ? (
                                           planningManagerName ? (
-                                            <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold ${planningManagerName ? '' : ''}`}>
+                                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${planningManagerName ? '' : ''}`}>
                                               {planningManagerName}
                                             </span>
                                           ) : (
@@ -450,14 +451,14 @@ export default function UpdateSchedulePage() {
 
                                     {isOpenClose ? (
                                       <td colSpan={COLUMNS.length + (isOpenClose ? 2 : 1)} className="p-1 border text-center">
-                                        <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
+                                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
                                       </td>
                                     ) : (
                                       <>
                                         {COLUMNS.map(col => {
                                           const name = originalData[`${day}-${slot}-${col.id}`];
                                           return (
-                                            <td key={col.id} className={`p-1 border text-center font-bold h-[32px] ${name ? getEmployeeColor(name) : 'bg-white'}`}>
+                                            <td key={col.id} className={`p-1 border text-center font-bold h-[32px] ${name ? getStaffColorByIndex(name, activeStaffList) : 'bg-white'}`}>
                                               {name || "-"}
                                             </td>
                                           );
@@ -476,16 +477,16 @@ export default function UpdateSchedulePage() {
                       {/* ===== ACTUAL SIDE (editable) ===== */}
                       <div className="flex-1 flex flex-col min-w-0">
                         <div className="bg-orange-600 p-1.5 flex justify-between items-center mb-1 rounded text-white tracking-widest h-8 sticky left-0 right-0 z-30">
-                            <div className="w-fit min-w-[100px] text-[8px] font-black bg-black/10 px-2 py-1 rounded">
+                            <div className="w-fit min-w-[100px] text-[10px] font-black bg-black/10 px-2 py-1 rounded">
                                 {selectedRecord.branch}
                             </div>
-                            <span className="font-bold text-[9px] uppercase">Actual</span>
+                            <span className="font-bold text-[11px] uppercase">Actual</span>
                             <div className="w-24 flex justify-end">
-                              <button onClick={() => handleClearDay(day)} className="text-[7px] font-bold bg-orange-800 px-1.5 py-0.5 rounded">CLEAR DAY</button>
+                              <button onClick={() => handleClearDay(day)} className="text-[9px] font-bold bg-orange-800 px-1.5 py-0.5 rounded">CLEAR DAY</button>
                             </div>
                         </div>
                         <div className="overflow-x-auto border rounded relative">
-                          <table className="w-full border-collapse text-[9px]" style={{ minWidth: '1700px' }}>
+                          <table className="w-full border-collapse text-[11px]" style={{ minWidth: '1700px' }}>
                             <thead>
                               <tr className="bg-[#2D3F50] text-white h-[40px]">
                                 <th className="p-1 border border-slate-900 w-32 sticky left-0 z-20 bg-[#2D3F50]">
@@ -497,14 +498,14 @@ export default function UpdateSchedulePage() {
                                     <select
                                       value={managerReplacementBranch[day] || ""}
                                       onChange={(e) => setManagerReplacementBranch(prev => ({ ...prev, [day]: e.target.value }))}
-                                      className="text-[7px] bg-slate-600 text-white border-none rounded px-1 py-0.5 w-full appearance-none text-center"
+                                      className="text-[9px] bg-slate-600 text-white border-none rounded px-1 py-0.5 w-full appearance-none text-center"
                                     >
                                       <option value="">Own Branch</option>
                                       {ALL_BRANCHES.filter(b => b !== selectedRecord.branch).map(b => (
                                         <option key={b} value={b}>{b}</option>
                                       ))}
                                     </select>
-                                    <button onClick={() => clearManagerForDay(day)} className="text-[7px] text-orange-300 font-bold hover:text-white uppercase px-2 py-0.5 rounded transition-colors bg-slate-600">CLEAR</button>
+                                    <button onClick={() => clearManagerForDay(day)} className="text-[9px] text-orange-300 font-bold hover:text-white uppercase px-2 py-0.5 rounded transition-colors bg-slate-600">CLEAR</button>
                                   </div>
                                 </th>
                                 {COLUMNS.map(c => (
@@ -514,14 +515,14 @@ export default function UpdateSchedulePage() {
                                       <select
                                         value={columnReplacementBranch[`${day}-${c.id}`] || ""}
                                         onChange={(e) => setColumnReplacementBranch(prev => ({ ...prev, [`${day}-${c.id}`]: e.target.value }))}
-                                        className="text-[7px] bg-slate-600 text-white border-none rounded px-1 py-0.5 w-full appearance-none text-center"
+                                        className="text-[9px] bg-slate-600 text-white border-none rounded px-1 py-0.5 w-full appearance-none text-center"
                                       >
                                         <option value="">Own Branch</option>
                                         {ALL_BRANCHES.filter(b => b !== selectedRecord.branch).map(b => (
                                           <option key={b} value={b}>{b}</option>
                                         ))}
                                       </select>
-                                      <button onClick={() => handleClearColumn(day, c.id)} className="text-[6px] text-orange-300 font-bold hover:text-white py-0.5">CLEAR</button>
+                                      <button onClick={() => handleClearColumn(day, c.id)} className="text-[9px] text-orange-300 font-bold hover:text-white py-0.5">CLEAR</button>
                                     </div>
                                   </th>
                                 ))}
@@ -563,7 +564,7 @@ export default function UpdateSchedulePage() {
                                                 return next;
                                               });
                                             }}
-                                            className="w-full h-full p-1 text-[9px] font-bold text-center border border-emerald-200 rounded bg-white appearance-none outline-none"
+                                            className="w-full h-full p-1 text-[11px] font-bold text-center border border-emerald-200 rounded bg-white appearance-none outline-none"
                                           >
                                             <option value="">-- Select --</option>
                                             {(branchManagerData[managerReplacementBranch[day] || selectedRecord.branch] || []).map(e => {
@@ -590,7 +591,7 @@ export default function UpdateSchedulePage() {
 
                                     {isOpenClose ? (
                                       <td colSpan={COLUMNS.length + 1} className="p-1 border text-center">
-                                        <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
+                                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
                                       </td>
                                     ) : (
                                       <>
@@ -606,21 +607,14 @@ export default function UpdateSchedulePage() {
                                               .map(c => updatedSelections[`${day}-${slot}-${c.id}`])
                                               .filter(Boolean)
                                           );
-                                          // Block names used in same column type across any slot (same-role dedup)
-                                          const namesInSameType = new Set(
-                                            COLUMNS.filter(c => c.id !== col.id && c.type === col.type)
-                                              .flatMap(c => slots.map(s => updatedSelections[`${day}-${s}-${c.id}`]))
-                                              .filter(Boolean)
-                                          );
                                           const namesUsedInOtherColumns = new Set([
                                             ...namesInSameSlot,
-                                            ...namesInSameType,
                                             ...(actualManagerVal ? [actualManagerVal] : []),
                                           ]);
                                           return (
                                             <td key={col.id} className={`p-0 border h-[32px] ${col.type==='exec' ? 'bg-slate-50' : 'bg-white'}`}>
                                               <select value={val} onChange={(e) => handleActualNameSelect(day, slot, col.id, e.target.value)}
-                                                className={`w-full h-full p-1 outline-none font-bold text-center appearance-none block ${val ? getEmployeeColor(val) : 'bg-transparent text-slate-300'}`}>
+                                                className={`w-full h-full p-1 outline-none font-bold text-center appearance-none block ${val ? getStaffColorByIndex(val, activeStaffList) : 'bg-transparent text-slate-300'}`}>
                                                 <option value="">None</option>
                                                 {colStaffList.map(e => {
                                                   const conflictBranch = replacementBranch
@@ -638,7 +632,7 @@ export default function UpdateSchedulePage() {
                                           );
                                         })}
                                         <td className="p-0 border bg-white h-[32px]">
-                                          <textarea value={updatedNotes[`${day}-${slot}-notes`] || ""} onChange={(e) => setUpdatedNotes(p => ({...p, [`${day}-${slot}-notes`]: e.target.value}))} className="w-full h-full p-1 text-[8px] resize-none outline-none italic text-slate-600 block" />
+                                          <textarea value={updatedNotes[`${day}-${slot}-notes`] || ""} onChange={(e) => setUpdatedNotes(p => ({...p, [`${day}-${slot}-notes`]: e.target.value}))} className="w-full h-full p-1 text-[10px] resize-none outline-none italic text-slate-600 block" />
                                         </td>
                                       </>
                                     )}
@@ -674,7 +668,7 @@ export default function UpdateSchedulePage() {
       <div className="flex h-screen bg-slate-50 overflow-hidden">
         <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
         
-        <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 0.9 }}>
+        <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 1.0 }}>
             
             <div className="shrink-0 w-full mx-auto px-4 md:px-6 pt-4 md:pt-6 z-50 bg-slate-50">
               

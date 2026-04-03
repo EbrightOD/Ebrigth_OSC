@@ -11,9 +11,9 @@ import Sidebar from "@/app/components/Sidebar";
 import {
   SHARED_EMPLOYEES, ALL_BRANCHES, DAYS, WEEKDAY_DAYS,
   COLUMNS, BRANCH_SLOTS_CONFIG,
-  getTimeSlotsForDay, isAdminSlot, getEmployeeColor,
+  getTimeSlotsForDay, isAdminSlot, getStaffColorByIndex,
   getWorkingDaysForBranch, isOpeningClosingSlot,
-  isManagerOnDutySlot, // <-- NEW IMPORT
+  isManagerOnDutySlot,
   SELECT_ARROW_WHITE, SELECT_ARROW_DARK
 } from "@/lib/manpowerUtils";
 
@@ -285,6 +285,9 @@ function PlanNewWeekPage() {
             } else {
               // Skip slot if name is already the manager for this slot
               if (next[`${day}-${slot}-MANAGER`] === name) return;
+              // Skip slot if name is already in any other coach/exec column for this slot
+              const usedInOtherColumn = COLUMNS.filter(c => c.id !== columnId).some(c => next[`${day}-${slot}-${c.id}`] === name);
+              if (usedInOtherColumn) return;
             }
             next[`${day}-${slot}-${columnId}`] = name;
           }
@@ -404,25 +407,7 @@ function PlanNewWeekPage() {
 
   const dayHasData = (day: string) => Object.keys(selections).some(k => k.startsWith(`${day}-`));
 
-  const STAFF_COLORS = [
-    "bg-red-500 text-white", "bg-orange-500 text-white", "bg-amber-500 text-black",
-    "bg-lime-600 text-white", "bg-green-600 text-white", "bg-emerald-500 text-white",
-    "bg-teal-600 text-white", "bg-cyan-600 text-white", "bg-sky-500 text-white",
-    "bg-blue-600 text-white", "bg-indigo-600 text-white", "bg-violet-600 text-white",
-    "bg-purple-600 text-white", "bg-fuchsia-600 text-white", "bg-pink-600 text-white",
-    "bg-rose-600 text-white", "bg-red-700 text-white", "bg-orange-700 text-white",
-    "bg-yellow-600 text-white", "bg-green-700 text-white", "bg-teal-700 text-white",
-    "bg-blue-700 text-white", "bg-indigo-700 text-white", "bg-violet-700 text-white",
-    "bg-pink-700 text-white", "bg-rose-700 text-white", "bg-cyan-700 text-white",
-    "bg-sky-700 text-white", "bg-emerald-700 text-white", "bg-purple-700 text-white",
-  ];
-
-  const getStaffColor = (name: string) => {
-    if (!name || name === "None") return "bg-white border border-slate-200 text-slate-400";
-    const idx = activeStaffList.indexOf(name);
-    if (idx >= 0) return STAFF_COLORS[idx % STAFF_COLORS.length];
-    return getEmployeeColor(name);
-  };
+  const getStaffColor = (name: string) => getStaffColorByIndex(name, activeStaffList);
 
   // Safely check role for UI tweaks
   const userRole = (session?.user as any)?.role || "USER";

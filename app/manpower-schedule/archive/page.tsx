@@ -11,10 +11,10 @@ import Sidebar from "@/app/components/Sidebar";
 
 // --- IMPORT SHARED CONSTANTS ---
 import {
-  COLUMNS, ALL_BRANCHES,
-  getTimeSlotsForDay, isAdminSlot, getEmployeeColor,
+  SHARED_EMPLOYEES, COLUMNS, ALL_BRANCHES,
+  getTimeSlotsForDay, isAdminSlot, getStaffColorByIndex,
   getWorkingDaysForBranch, isOpeningClosingSlot,
-  isManagerOnDutySlot, // <-- NEW IMPORT
+  isManagerOnDutySlot,
 } from "@/lib/manpowerUtils";
 
 
@@ -302,6 +302,7 @@ export default function ArchiveSchedulePage() {
               {selectedDay && (() => {
                 const day = selectedDay;
                 const slots = getTimeSlotsForDay(day, selectedRecord.branch);
+                const branchStaff = Array.from(new Set([...SHARED_EMPLOYEES, ...(branchStaffData[selectedRecord.branch] || [])]));
                 return (
                   <div key={day} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
                     <div className="bg-slate-500 p-3 border-b flex flex-col items-center justify-center">
@@ -349,7 +350,7 @@ export default function ArchiveSchedulePage() {
                                       {showManager ? (
                                         // Show manager name for slots where manager is on duty
                                         managerName ? (
-                                          <span className={`inline-block w-full px-2 py-1.5 rounded text-xs font-bold ${getEmployeeColor(managerName)}`}>
+                                          <span className={`inline-block w-full px-2 py-1.5 rounded text-xs font-bold ${getStaffColorByIndex(managerName, branchStaff)}`}>
                                             {managerName}
                                           </span>
                                         ) : (
@@ -373,7 +374,7 @@ export default function ArchiveSchedulePage() {
                                       {COLUMNS.map(col => {
                                         const name = validData[`${day}-${slot}-${col.id}`];
                                         const displayValue = name && name !== "None" ? name : "-";
-                                        const bgColor = name && name !== "None" ? getEmployeeColor(name) : (col.type === 'exec' ? 'bg-slate-50 text-slate-300' : 'bg-white text-slate-300');
+                                        const bgColor = name && name !== "None" ? getStaffColorByIndex(name, branchStaff) : (col.type === 'exec' ? 'bg-slate-50 text-slate-300' : 'bg-white text-slate-300');
                                         return (
                                             <td key={col.id} className={`p-3 border-r border-b border-slate-200 text-center font-bold transition-colors ${bgColor}`}>
                                                 {displayValue}
