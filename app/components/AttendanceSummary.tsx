@@ -168,7 +168,7 @@ function buildAttendanceLogs(
 
 export default function AttendanceSummary() {
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [logs, setLogs] = useState<AttendanceRecord[]>([]);
@@ -220,6 +220,11 @@ export default function AttendanceSummary() {
 
   return (
     <div className="flex min-h-screen bg-blue-50">
+      <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
+      <div className="flex-1">
+      {/* Header */}
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex items-center gap-4">            <button
       <Sidebar sidebarOpen={sidebarOpen} onCollapse={() => setSidebarOpen(!sidebarOpen)} />
 
       <div className="flex-1 flex flex-col">

@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { format, parseISO, addDays, startOfWeek, endOfWeek } from "date-fns"; 
 import { DateRange, RangeKeyDict } from "react-date-range"; 
-import { useSession } from "next-auth/react"; // <-- 1. IMPORT SESSION
+import { useSession } from "next-auth/react";
 import "react-date-range/dist/styles.css"; 
 import "react-date-range/dist/theme/default.css"; 
 import Sidebar from "@/app/components/Sidebar";
@@ -15,6 +15,7 @@ import {
   COLUMNS,
   getTimeSlotsForDay, isAdminSlot, getEmployeeColor,
   getWorkingDaysForBranch, isOpeningClosingSlot,
+  isManagerOnDutySlot, // <-- NEW IMPORT
 } from "@/lib/manpowerUtils";
 
 // --- DATE FORMATTING HELPERS ---
@@ -42,7 +43,6 @@ const getDateForDay = (dayName: string, startDateStr: string) => {
   }
   return "";
 };
-// -----------------------------------
 
 // --- HELPER COMPONENT: DETAILED SUMMARY TABLE ---
 const SummaryTable = ({ title, data, theme = "blue" }: { title: string, data: any[], theme?: "blue" | "orange" }) => {
@@ -100,9 +100,9 @@ const SummaryTable = ({ title, data, theme = "blue" }: { title: string, data: an
 
 export default function UpdateSchedulePage() {
   const router = useRouter();
-  const { data: session } = useSession(); // <-- 2. GRAB SESSION
+  const { data: session } = useSession();
   
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const [updatedSelections, setUpdatedSelections] = useState<Record<string, string>>({});
   const [updatedNotes, setUpdatedNotes] = useState<Record<string, string>>({});
@@ -110,16 +110,14 @@ export default function UpdateSchedulePage() {
   const [branchManagerData, setBranchManagerData] = useState<Record<string, string[]>>({});
   const [columnReplacementBranch, setColumnReplacementBranch] = useState<Record<string, string>>({});
   const [managerReplacementBranch, setManagerReplacementBranch] = useState<Record<string, string>>({});
-  
-  // --- LIVE DB STATE ---
-  const [history, setHistory] = useState<any[]>([]); // Replaced localStorage
+  const [scheduledElsewhere, setScheduledElsewhere] = useState<Record<string, Record<string, Set<string>>>>({});
+
+  const [history, setHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // --- FILTER STATES ---
   const [filterBranch, setFilterBranch] = useState<string>("");
   const [filterDate, setFilterDate] = useState<string>(""); 
   
-  // --- CALENDAR POPOVER STATES ---
   const [showCalendar, setShowCalendar] = useState(false);
   const [shownDate, setShownDate] = useState(new Date());
   const [isDateFiltered, setIsDateFiltered] = useState(false);
@@ -129,15 +127,12 @@ export default function UpdateSchedulePage() {
     key: "selection",
   }]);
 
-  // --- FETCH DATA FROM POSTGRESQL ---
   useEffect(() => {
     const fetchSchedules = async () => {
       try {
         const res = await fetch('/api/get-schedules');
         const data = await res.json();
-        if (data.success) {
-          setHistory(data.schedules);
-        }
+        if (data.success) setHistory(data.schedules);
       } catch (err) {
         console.error("Failed to load schedules", err);
       } finally {
@@ -164,25 +159,35 @@ export default function UpdateSchedulePage() {
     fetchStaff();
   }, []);
 
-  // Safely extract user info
   const userRole = (session?.user as any)?.role || "USER";
   const userBranch = (session?.user as any)?.branchName;
 
-  // --- APPLY FILTERS & ROLE SECURITY TO THE LIST ---
   const filteredHistory = useMemo(() => {
     return history.filter((record: any) => {
-      // SECURITY: BM only sees their branch
-      if (userRole === "BRANCH_MANAGER" && record.branch !== userBranch) {
-        return false;
-      }
-      
+      if (userRole === "BRANCH_MANAGER" && record.branch !== userBranch) return false;
       const matchBranch = filterBranch ? record.branch === filterBranch : true;
       const matchWeek = filterDate ? record.startDate === filterDate : true;
       return matchBranch && matchWeek;
     });
   }, [history, filterBranch, filterDate, userRole, userBranch]);
 
-
+  // Compute which staff are already scheduled at other branches for the same week
+  useEffect(() => {
+    if (!selectedRecord) return;
+    const map: Record<string, Record<string, Set<string>>> = {};
+    history.forEach((s: any) => {
+      if (s.startDate !== selectedRecord.startDate || s.branch === selectedRecord.branch) return;
+      const dayMap: Record<string, Set<string>> = {};
+      Object.entries(s.selections || {}).forEach(([key, val]: [string, any]) => {
+        if (!val || val === "None") return;
+        const dayName = key.split('-')[0];
+        if (!dayMap[dayName]) dayMap[dayName] = new Set();
+        dayMap[dayName].add(val as string);
+      });
+      if (Object.keys(dayMap).length > 0) map[s.branch] = dayMap;
+    });
+    setScheduledElsewhere(map);
+  }, [selectedRecord, history]);
 
   const handleSelectRecord = (record: any) => {
     setSelectedRecord(record);
@@ -195,11 +200,9 @@ export default function UpdateSchedulePage() {
       const next = { ...prev };
       if (!name || name === "None") {
         delete next[`${day}-${targetTime}-${colId}`];
-        return next;
+      } else {
+        next[`${day}-${targetTime}-${colId}`] = name;
       }
-      getTimeSlotsForDay(day, selectedRecord.branch).forEach((slot) => {
-        next[`${day}-${slot}-${colId}`] = name;
-      });
       return next;
     });
   };
@@ -209,6 +212,14 @@ export default function UpdateSchedulePage() {
     setUpdatedSelections(prev => {
       const next = { ...prev };
       Object.keys(next).forEach(key => { if (key.startsWith(`${day}-`)) delete next[key]; });
+      return next;
+    });
+  };
+
+  const clearManagerForDay = (day: string) => {
+    setUpdatedSelections(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(key => { if (key.startsWith(`${day}-`) && key.endsWith(`-MANAGER`)) delete next[key]; });
       return next;
     });
   };
@@ -226,7 +237,7 @@ export default function UpdateSchedulePage() {
     const dataToCalculate = isOriginalData ? (selectedRecord.originalSelections || selectedRecord.selections) : selections;
     if (!dataToCalculate) return [];
 
-    const managerNames = new Set(branchManagerData[selectedRecord.branch] || []);
+    const managerNames = new Set(Object.values(branchManagerData).flat());
     const allBranchStaff = (branchStaffData[selectedRecord.branch] || []).filter(n => !managerNames.has(n));
     const uniqueEmployeesToTrack: string[] = Array.from(new Set([
       ...allBranchStaff,
@@ -263,11 +274,9 @@ export default function UpdateSchedulePage() {
     return Object.entries(staffStats).map(([name, stats]) => ({ name, ...stats }));
   };
 
-  // --- SAVE UPDATES TO DATABASE ---
   const handleUpdateSave = async () => {
     if (!window.confirm("Save adjustments to the database?")) return;
     
-    // Create the updated record payload
     const updatedRecord = {
       ...selectedRecord,
       selections: updatedSelections,
@@ -285,8 +294,6 @@ export default function UpdateSchedulePage() {
       if (!response.ok) throw new Error("Failed to save");
 
       alert("Adjustments Saved Successfully! 💾");
-      
-      // Update local state so UI refreshes without needing a full page reload
       setHistory(prev => prev.map(h => h.id === updatedRecord.id ? updatedRecord : h));
       setSelectedRecord(null);
       
@@ -302,30 +309,19 @@ export default function UpdateSchedulePage() {
     const namesUsedInOriginal = Object.values(selectedRecord.originalSelections || {}).filter(Boolean) as string[];
     const namesUsedInUpdates = Object.values(updatedSelections || {}).filter(Boolean) as string[];
     const globalUsedNames = Array.from(new Set([...namesUsedInOriginal, ...namesUsedInUpdates]));
+    const originalData = selectedRecord.originalSelections || selectedRecord.selections || {};
+    const originalNotes = selectedRecord.notes || selectedRecord.originalNotes || {};
 
     return (
       <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden">
-        <Sidebar sidebarOpen={sidebarOpen} onCollapse={() => setSidebarOpen(false)} />
+        <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
         
         <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 0.9 }}>
           
-          {/* DETAIL TOP BAR */}
           <div className="shrink-0 w-full mx-auto px-4 md:px-6 pt-4 md:pt-6 z-50 bg-slate-50">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center gap-6 mb-6">
               <div className="flex items-center gap-6">
                 
-                {/* HAMBURGER BUTTON TO OPEN SIDEBAR */}
-                {!sidebarOpen && (
-                  <button
-                    onClick={() => setSidebarOpen(true)}
-                    className="p-3 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-xl transition-colors shadow-sm flex items-center justify-center"
-                    title="Open Sidebar"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </button>
-                )}
 
                 <button
                   onClick={() => setSelectedRecord(null)}
@@ -334,7 +330,7 @@ export default function UpdateSchedulePage() {
                   ← Back to List
                 </button>
                 <div className="h-8 w-px bg-slate-300"></div>
-                <h1 className="text-2xl font-black uppercase tracking-wide text-slate-800 leading-none m-0 flex items-center gap-4">
+                <h1 className="text-lg font-black uppercase tracking-wide text-slate-800 leading-none m-0 flex items-center gap-4">
                   <span>Updating: {selectedRecord.branch}</span>
                   {selectedRecord.startDate && selectedRecord.endDate && (
                     <span className="text-sm bg-slate-100 text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg font-bold tracking-widest uppercase">
@@ -370,7 +366,8 @@ export default function UpdateSchedulePage() {
                     </div>
                     
                     <div className="flex flex-col xl:flex-row gap-3 relative">
-                      {/* PLANNING SIDE */}
+
+                      {/* ===== PLANNING SIDE (read-only) ===== */}
                       <div className="flex-1 opacity-60 flex flex-col min-w-0">
                         <div className="bg-slate-500 p-1.5 text-center font-bold text-[9px] uppercase mb-1 rounded text-white tracking-widest h-8 sticky left-0 right-0 z-30">
                             Planning
@@ -380,58 +377,72 @@ export default function UpdateSchedulePage() {
                             <thead>
                               <tr className="bg-slate-700 text-white text-center h-[40px]">
                                 <th className="p-1 border border-slate-600 w-32 sticky left-0 z-20 bg-slate-700">
-                                  <div className="flex flex-col items-center">
-                                      <span>Slot</span>
-                                      <span className="text-[6px] invisible py-0.5">CLEAR</span>
-                                  </div>
+                                  <div className="flex flex-col items-center"><span>Slot</span></div>
                                 </th>
                                 <th className="p-1 border border-slate-600 w-24 bg-slate-700 border-b-2 border-b-emerald-400">
-                                  <div className="flex flex-col items-center">
-                                      <span>Manager</span>
-                                      <span className="text-[6px] invisible py-0.5">CLEAR</span>
-                                  </div>
+                                  <div className="flex flex-col items-center"><span>Manager</span></div>
                                 </th>
                                 {COLUMNS.map(c => (
                                   <th key={c.id} className={`p-1 border border-slate-600 w-24 ${c.type==='exec'?'bg-slate-800':''}`}>
-                                    <div className="flex flex-col items-center">
-                                        <span>{c.label}</span>
-                                        <span className="text-[6px] invisible py-0.5">CLEAR</span>
-                                    </div>
+                                    <div className="flex flex-col items-center"><span>{c.label}</span></div>
                                   </th>
                                 ))}
                                 <th className="p-1 border border-slate-600 w-40">
-                                  <div className="flex flex-col items-center">
-                                      <span>Notes</span>
-                                      <span className="text-[6px] invisible py-0.5">CLEAR</span>
-                                  </div>
+                                  <div className="flex flex-col items-center"><span>Notes</span></div>
                                 </th>
                               </tr>
                             </thead>
                             <tbody>
                               {slots.map((slot, slotIndex) => {
                                 const isOpenClose = isOpeningClosingSlot(slot, selectedRecord.branch);
+                                // --- KEY FIX: per-slot manager logic for Planning side ---
+                                const showManagerPlanning = isManagerOnDutySlot(slot, selectedRecord.branch, day);
+                                const planningManagerName =
+                                  originalData[`${day}-${slot}-MANAGER`] ||     // new format
+                                  originalNotes[`${day}-MANAGER`] ||             // legacy format
+                                  "";
+
                                 return (
-                                <tr key={slot} className={`h-[32px] ${isOpenClose ? 'bg-blue-50' : ''}`}>
-                                  <td className={`p-1 border font-bold sticky left-0 z-10 h-[32px] ${isOpenClose ? 'bg-blue-100' : 'bg-slate-50'}`}>{slot}</td>
-                                  {slotIndex === 0 && (
-                                    <td rowSpan={slots.length} className="p-1 border bg-emerald-50 text-center font-bold align-middle">
-                                      {(selectedRecord.notes || selectedRecord.originalNotes || {})[`${day}-MANAGER`] || "-"}
-                                    </td>
-                                  )}
-                                  {isOpenClose ? (
-                                    <td colSpan={COLUMNS.length + 1} className="p-1 border text-center">
-                                      <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
-                                    </td>
-                                  ) : (
-                                    <>
-                                      {COLUMNS.map(col => {
-                                        const name = (selectedRecord.originalSelections || selectedRecord.selections)[`${day}-${slot}-${col.id}`];
-                                        return <td key={col.id} className={`p-1 border text-center font-bold h-[32px] ${name ? getEmployeeColor(name) : 'bg-white'}`}>{name || "-"}</td>;
-                                      })}
-                                      <td className="p-1 border bg-white italic text-slate-400 h-[32px]">...</td>
-                                    </>
-                                  )}
-                                </tr>
+                                  <tr key={slot} className={`h-[32px] ${isOpenClose ? 'bg-blue-50' : ''}`}>
+                                    <td className={`p-1 border font-bold sticky left-0 z-10 h-[32px] ${isOpenClose ? 'bg-blue-100' : 'bg-slate-50'}`}>{slot}</td>
+                                    
+                                    {/* Planning Manager Cell — per slot, no rowSpan */}
+                                    {!isOpenClose && (
+                                      <td className="p-1 border bg-emerald-50 text-center font-bold align-middle h-[32px]">
+                                        {showManagerPlanning ? (
+                                          planningManagerName ? (
+                                            <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold ${planningManagerName ? '' : ''}`}>
+                                              {planningManagerName}
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-300">-</span>
+                                          )
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center">
+                                            <span className="text-[8px] text-emerald-200">—</span>
+                                          </div>
+                                        )}
+                                      </td>
+                                    )}
+
+                                    {isOpenClose ? (
+                                      <td colSpan={COLUMNS.length + (isOpenClose ? 2 : 1)} className="p-1 border text-center">
+                                        <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
+                                      </td>
+                                    ) : (
+                                      <>
+                                        {COLUMNS.map(col => {
+                                          const name = originalData[`${day}-${slot}-${col.id}`];
+                                          return (
+                                            <td key={col.id} className={`p-1 border text-center font-bold h-[32px] ${name ? getEmployeeColor(name) : 'bg-white'}`}>
+                                              {name || "-"}
+                                            </td>
+                                          );
+                                        })}
+                                        <td className="p-1 border bg-white italic text-slate-400 h-[32px]">...</td>
+                                      </>
+                                    )}
+                                  </tr>
                                 );
                               })}
                             </tbody>
@@ -439,7 +450,7 @@ export default function UpdateSchedulePage() {
                         </div>
                       </div>
 
-                      {/* ACTUAL SIDE */}
+                      {/* ===== ACTUAL SIDE (editable) ===== */}
                       <div className="flex-1 flex flex-col min-w-0">
                         <div className="bg-orange-600 p-1.5 flex justify-between items-center mb-1 rounded text-white tracking-widest h-8 sticky left-0 right-0 z-30">
                             <div className="w-fit min-w-[100px] text-[8px] font-black bg-black/10 px-2 py-1 rounded">
@@ -455,10 +466,7 @@ export default function UpdateSchedulePage() {
                             <thead>
                               <tr className="bg-[#2D3F50] text-white h-[40px]">
                                 <th className="p-1 border border-slate-900 w-32 sticky left-0 z-20 bg-[#2D3F50]">
-                                  <div className="flex flex-col items-center">
-                                      <span>Slot</span>
-                                      <span className="text-[6px] invisible py-0.5">CLEAR</span>
-                                  </div>
+                                  <div className="flex flex-col items-center"><span>Slot</span></div>
                                 </th>
                                 <th className="p-1 border border-slate-900 w-24 bg-slate-700 border-b-2 border-b-emerald-400">
                                   <div className="flex flex-col items-center gap-0.5">
@@ -473,6 +481,7 @@ export default function UpdateSchedulePage() {
                                         <option key={b} value={b}>{b}</option>
                                       ))}
                                     </select>
+                                    <button onClick={() => clearManagerForDay(day)} className="text-[7px] text-orange-300 font-bold hover:text-white uppercase px-2 py-0.5 rounded transition-colors bg-slate-600">CLEAR</button>
                                   </div>
                                 </th>
                                 {COLUMNS.map(c => (
@@ -494,66 +503,123 @@ export default function UpdateSchedulePage() {
                                   </th>
                                 ))}
                                 <th className="p-1 border border-slate-900 w-40">
-                                  <div className="flex flex-col items-center">
-                                      <span>Notes</span>
-                                      <span className="text-[6px] invisible py-0.5">CLEAR</span>
-                                  </div>
+                                  <div className="flex flex-col items-center"><span>Notes</span></div>
                                 </th>
                               </tr>
                             </thead>
                             <tbody>
                               {slots.map((slot, slotIndex) => {
                                 const isOpenClose = isOpeningClosingSlot(slot, selectedRecord.branch);
+                                // --- KEY FIX: per-slot manager logic for Actual side ---
+                                const showManagerActual = isManagerOnDutySlot(slot, selectedRecord.branch, day);
+                                const actualManagerVal =
+                                  updatedSelections[`${day}-${slot}-MANAGER`] ||   // new format
+                                  updatedNotes[`${day}-MANAGER`] ||                 // legacy format
+                                  "";
+
                                 return (
-                                <tr key={slot} className={`group h-[32px] ${isOpenClose ? 'bg-blue-50' : ''}`}>
-                                  <td className={`p-1 border font-bold sticky left-0 z-10 h-[32px] ${isOpenClose ? 'bg-blue-100' : 'bg-orange-50 group-hover:bg-orange-100'}`}>{slot}</td>
-                                  {slotIndex === 0 && (
-                                    <td rowSpan={slots.length} className="p-1 border bg-emerald-50 align-middle">
-                                      <select
-                                        value={updatedNotes[`${day}-MANAGER`] || ""}
-                                        onChange={(e) => setUpdatedNotes(p => ({ ...p, [`${day}-MANAGER`]: e.target.value }))}
-                                        className="w-full p-1 text-[9px] font-bold text-center border border-emerald-200 rounded bg-white appearance-none outline-none"
-                                      >
-                                        <option value="">-- Select --</option>
-                                        {(branchManagerData[managerReplacementBranch[day] || selectedRecord.branch] || []).map(e => (
-                                          <option key={e} value={e}>{e}</option>
-                                        ))}
-                                      </select>
-                                    </td>
-                                  )}
-                                  {isOpenClose ? (
-                                    <td colSpan={COLUMNS.length + 1} className="p-1 border text-center">
-                                      <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
-                                    </td>
-                                  ) : (
-                                    <>
-                                      {COLUMNS.map(col => {
-                                        const val = updatedSelections[`${day}-${slot}-${col.id}`] || "";
-                                        const replacementBranch = columnReplacementBranch[`${day}-${col.id}`];
-                                        const colStaffList = replacementBranch
-                                          ? (branchStaffData[replacementBranch] || [])
-                                          : activeStaffList;
-                                        const namesUsedInOtherColumns = new Set(
-                                          COLUMNS.filter(c => c.id !== col.id)
-                                            .flatMap(c => slots.map(s => updatedSelections[`${day}-${s}-${c.id}`]))
-                                            .filter(Boolean)
-                                        );
-                                        return (
-                                          <td key={col.id} className={`p-0 border h-[32px] ${col.type==='exec' ? 'bg-slate-50' : 'bg-white'}`}>
-                                            <select value={val} onChange={(e) => handleActualNameSelect(day, slot, col.id, e.target.value)}
-                                              className={`w-full h-full p-1 outline-none font-bold text-center appearance-none block ${val ? getEmployeeColor(val) : 'bg-transparent text-slate-300'}`}>
-                                              <option value="">-</option>
-                                              {colStaffList.map(e => <option key={e} value={e} disabled={namesUsedInOtherColumns.has(e)} className="text-black">{e}</option>)}
-                                            </select>
-                                          </td>
-                                        );
-                                      })}
-                                      <td className="p-0 border bg-white h-[32px]">
-                                        <textarea value={updatedNotes[`${day}-${slot}-notes`] || ""} onChange={(e) => setUpdatedNotes(p => ({...p, [`${day}-${slot}-notes`]: e.target.value}))} className="w-full h-full p-1 text-[8px] resize-none outline-none italic text-slate-600 block" />
+                                  <tr key={slot} className={`group h-[32px] ${isOpenClose ? 'bg-blue-50' : ''}`}>
+                                    <td className={`p-1 border font-bold sticky left-0 z-10 h-[32px] ${isOpenClose ? 'bg-blue-100' : 'bg-orange-50 group-hover:bg-orange-100'}`}>{slot}</td>
+
+                                    {/* Actual Manager Cell — per slot, no rowSpan */}
+                                    {!isOpenClose && (
+                                      <td className="p-1 border bg-emerald-50 align-middle h-[32px]">
+                                        {showManagerActual ? (
+                                          // Show editable dropdown for manager slots
+                                          <select
+                                            value={actualManagerVal}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setUpdatedSelections(prev => {
+                                                const next = { ...prev };
+                                                if (val) {
+                                                  next[`${day}-${slot}-MANAGER`] = val;
+                                                } else {
+                                                  delete next[`${day}-${slot}-MANAGER`];
+                                                }
+                                                return next;
+                                              });
+                                            }}
+                                            className="w-full h-full p-1 text-[9px] font-bold text-center border border-emerald-200 rounded bg-white appearance-none outline-none"
+                                          >
+                                            <option value="">-- Select --</option>
+                                            {(branchManagerData[managerReplacementBranch[day] || selectedRecord.branch] || []).map(e => {
+                                              const mgReplacementBranch = managerReplacementBranch[day];
+                                              const conflictBranch = mgReplacementBranch
+                                                ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                                : undefined;
+                                              const isConflict = !!conflictBranch;
+                                              return (
+                                                <option key={e} value={e} disabled={isConflict}>
+                                                  {isConflict ? `${e} (at ${conflictBranch})` : e}
+                                                </option>
+                                              );
+                                            })}
+                                          </select>
+                                        ) : (
+                                          // Empty placeholder for slots after manager's shift
+                                          <div className="w-full h-full flex items-center justify-center">
+                                            <span className="text-[8px] text-emerald-200">—</span>
+                                          </div>
+                                        )}
                                       </td>
-                                    </>
-                                  )}
-                                </tr>
+                                    )}
+
+                                    {isOpenClose ? (
+                                      <td colSpan={COLUMNS.length + 1} className="p-1 border text-center">
+                                        <span className="text-[8px] font-black text-blue-600 uppercase tracking-widest">All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})</span>
+                                      </td>
+                                    ) : (
+                                      <>
+                                        {COLUMNS.map(col => {
+                                          const val = updatedSelections[`${day}-${slot}-${col.id}`] || "";
+                                          const replacementBranch = columnReplacementBranch[`${day}-${col.id}`];
+                                          const colStaffList = replacementBranch
+                                            ? (branchStaffData[replacementBranch] || [])
+                                            : activeStaffList;
+                                          // Block names used in same slot across any column type (cross-type per-slot conflict)
+                                          const namesInSameSlot = new Set(
+                                            COLUMNS.filter(c => c.id !== col.id)
+                                              .map(c => updatedSelections[`${day}-${slot}-${c.id}`])
+                                              .filter(Boolean)
+                                          );
+                                          // Block names used in same column type across any slot (same-role dedup)
+                                          const namesInSameType = new Set(
+                                            COLUMNS.filter(c => c.id !== col.id && c.type === col.type)
+                                              .flatMap(c => slots.map(s => updatedSelections[`${day}-${s}-${c.id}`]))
+                                              .filter(Boolean)
+                                          );
+                                          const namesUsedInOtherColumns = new Set([
+                                            ...namesInSameSlot,
+                                            ...namesInSameType,
+                                            ...(actualManagerVal ? [actualManagerVal] : []),
+                                          ]);
+                                          return (
+                                            <td key={col.id} className={`p-0 border h-[32px] ${col.type==='exec' ? 'bg-slate-50' : 'bg-white'}`}>
+                                              <select value={val} onChange={(e) => handleActualNameSelect(day, slot, col.id, e.target.value)}
+                                                className={`w-full h-full p-1 outline-none font-bold text-center appearance-none block ${val ? getEmployeeColor(val) : 'bg-transparent text-slate-300'}`}>
+                                                <option value="">None</option>
+                                                {colStaffList.map(e => {
+                                                  const conflictBranch = replacementBranch
+                                                    ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                                    : undefined;
+                                                  const isConflict = !!conflictBranch;
+                                                  return (
+                                                    <option key={e} value={e} disabled={namesUsedInOtherColumns.has(e) || isConflict} className="text-black">
+                                                      {isConflict ? `${e} (at ${conflictBranch})` : e}
+                                                    </option>
+                                                  );
+                                                })}
+                                              </select>
+                                            </td>
+                                          );
+                                        })}
+                                        <td className="p-0 border bg-white h-[32px]">
+                                          <textarea value={updatedNotes[`${day}-${slot}-notes`] || ""} onChange={(e) => setUpdatedNotes(p => ({...p, [`${day}-${slot}-notes`]: e.target.value}))} className="w-full h-full p-1 text-[8px] resize-none outline-none italic text-slate-600 block" />
+                                        </td>
+                                      </>
+                                    )}
+                                  </tr>
                                 );
                               })}
                             </tbody>
@@ -583,43 +649,29 @@ export default function UpdateSchedulePage() {
   return (
     <>
       <div className="flex h-screen bg-slate-50 overflow-hidden">
-        <Sidebar sidebarOpen={sidebarOpen} onCollapse={() => setSidebarOpen(false)} />
+        <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
         
         <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 0.9 }}>
             
-            <div className="shrink-0 w-full max-w-6xl mx-auto px-4 md:px-6 pt-4 md:pt-6 z-50 bg-slate-50">
+            <div className="shrink-0 w-full mx-auto px-4 md:px-6 pt-4 md:pt-6 z-50 bg-slate-50">
               
-              {/* LIST TOP BAR */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-6 mb-6">
-                {!sidebarOpen && (
-                  <button
-                    onClick={() => setSidebarOpen(true)}
-                    className="p-3 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-xl transition-colors shadow-sm flex items-center justify-center"
-                    title="Open Sidebar"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </button>
-                )}
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4 mb-6">
 
                 <button
                   onClick={() => router.push('/manpower-schedule')}
-                  className="bg-blue-500 text-white px-6 py-3 rounded-xl flex items-center gap-3 shadow-md hover:bg-blue-600 transition-colors"
+                  className="bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 shadow-md hover:bg-blue-600 transition-colors"
                 >
-                  <span className="text-2xl">👥</span>
-                  <span className="text-lg font-black uppercase tracking-wide leading-none">HRMS</span>
+                  <span className="text-xl">👥</span>
+                  <span className="text-base font-black uppercase tracking-wide leading-none">HRMS</span>
                 </button>
                 <div className="h-8 w-px bg-slate-300"></div>
-                <h1 className="text-2xl font-black uppercase tracking-wide text-slate-800 leading-none m-0">
+                <h1 className="text-lg font-black uppercase tracking-wide text-slate-800 leading-none m-0">
                   Update Manpower Schedule
                 </h1>
               </div>
 
-              {/* FILTER CONTROLS */}
               <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 mb-6 relative">
                 
-                {/* ONLY SHOW BRANCH FILTER IF NOT A BRANCH MANAGER */}
                 {userRole !== "BRANCH_MANAGER" && (
                   <div className="flex-1">
                     <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Filter by Branch</label>
@@ -666,8 +718,7 @@ export default function UpdateSchedulePage() {
               </div>
             </div>
 
-            {/* SCROLLING GRID AREA */}
-            <div className="flex-1 overflow-y-auto w-full max-w-6xl mx-auto px-4 md:px-6 pb-12">
+            <div className="flex-1 overflow-y-auto w-full mx-auto px-4 md:px-6 pb-12">
               {isLoading ? (
                 <div className="flex justify-center items-center h-40">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -676,30 +727,89 @@ export default function UpdateSchedulePage() {
                 <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-300 text-center shadow-sm">
                     <p className="text-slate-500 font-bold text-lg uppercase tracking-widest">No schedules available matching filters.</p>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {filteredHistory.map((record: any) => (
-                    <div key={record.id} onClick={() => handleSelectRecord(record)} className="bg-white p-8 rounded-3xl shadow-md border-4 border-transparent hover:border-orange-500 cursor-pointer transition-all flex flex-col justify-center">
-                        <h3 className="font-black text-2xl uppercase text-slate-800 mb-2">{record.branch}</h3>
-                        <div className="inline-flex items-center gap-2">
-                          <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-md text-xs font-bold tracking-widest uppercase shadow-sm">
-                            Week Of: {formatDateString(record.startDate)}
-                          </span>
+              ) : (() => {
+                  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                  const WEEK_LABELS = ["1 – 7","8 – 14","15 – 21","22 – 31"];
+                  const getWeekBucket = (dateStr: string) => {
+                    const d = parseInt(format(parseISO(dateStr), "d"));
+                    if (d <= 7) return 0; if (d <= 14) return 1; if (d <= 21) return 2; return 3;
+                  };
+                  const byYear: Record<string, any[]> = {};
+                  filteredHistory.forEach(r => {
+                    const y = format(parseISO(r.startDate), "yyyy");
+                    if (!byYear[y]) byYear[y] = [];
+                    byYear[y].push(r);
+                  });
+                  return Object.keys(byYear).sort((a,b) => parseInt(b)-parseInt(a)).map(year => {
+                    const recs = byYear[year];
+                    const monthIdxs = Array.from(new Set(recs.map(r => parseInt(format(parseISO(r.startDate),"M"))-1))).sort((a,b)=>a-b);
+                    const buckets = Array.from(new Set(recs.map(r => getWeekBucket(r.startDate)))).sort();
+                    const lookup: Record<string,any[]> = {};
+                    recs.forEach(r => {
+                      const k = `${parseInt(format(parseISO(r.startDate),"M"))-1}-${getWeekBucket(r.startDate)}`;
+                      if (!lookup[k]) lookup[k] = [];
+                      lookup[k].push(r);
+                    });
+                    return (
+                      <div key={year} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                        <div className="bg-[#2D3F50] px-6 py-3">
+                          <h2 className="text-white font-black text-xl uppercase tracking-widest">{year}</h2>
                         </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100">
+                                <th className="p-3 text-xs font-black uppercase text-slate-400 border-b border-r border-slate-200 w-20"></th>
+                                {monthIdxs.map(mi => (
+                                  <th key={mi} className="p-3 text-xs font-black uppercase text-slate-600 border-b border-r border-slate-200 text-center min-w-[140px]">
+                                    {MONTH_NAMES[mi]}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {buckets.map(bucket => (
+                                <tr key={bucket} className="border-b border-slate-100">
+                                  <td className="p-3 text-xs font-black text-slate-400 border-r border-slate-200 text-center whitespace-nowrap bg-slate-50">
+                                    {WEEK_LABELS[bucket]}
+                                  </td>
+                                  {monthIdxs.map(mi => {
+                                    const cellRecs = lookup[`${mi}-${bucket}`] || [];
+                                    return (
+                                      <td key={mi} className="p-2 border-r border-slate-200 align-top">
+                                        {cellRecs.length > 0 ? (
+                                          <div className="flex flex-col gap-1">
+                                            {cellRecs.map(record => (
+                                              <button key={record.id} onClick={() => handleSelectRecord(record)}
+                                                className="w-full text-left px-3 py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors">
+                                                <div className="font-black text-xs text-orange-800 uppercase">{record.branch}</div>
+                                                <div className="text-[10px] text-orange-500 font-bold mt-0.5">
+                                                  {format(parseISO(record.startDate),"dd MMM")} – {format(parseISO(record.endDate),"dd MMM")}
+                                                </div>
+                                              </button>
+                                            ))}
+                                          </div>
+                                        ) : <span className="text-slate-200 text-xs flex justify-center">—</span>}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  });
+              })()}
             </div>
         </main>
       </div>
-
-      {/* --- CENTERED MODAL FOR CALENDAR --- */}
       {showCalendar && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white p-6 rounded-[2rem] shadow-2xl border border-slate-100 flex flex-col max-w-md w-full relative">
             <h2 className="text-xl font-black text-slate-800 mb-4 uppercase tracking-tight text-center">Select a Week</h2>
-            
+
             <div className="flex justify-center w-full overflow-hidden mb-4">
               <DateRange
                 onChange={(item: RangeKeyDict) => {
@@ -707,12 +817,9 @@ export default function UpdateSchedulePage() {
                   if (selection.startDate) {
                     const start = startOfWeek(selection.startDate, { weekStartsOn: 1 });
                     const end = endOfWeek(selection.startDate, { weekStartsOn: 1 });
-                    
                     setRange([{ startDate: start, endDate: end, key: "selection" }]);
                     setIsDateFiltered(true);
-                    
-                    setFilterDate(format(start, "yyyy-MM-dd")); 
-                    
+                    setFilterDate(format(start, "yyyy-MM-dd"));
                     setTimeout(() => setShowCalendar(false), 250);
                   }
                 }}
@@ -728,8 +835,8 @@ export default function UpdateSchedulePage() {
               />
             </div>
 
-            <button 
-              onClick={() => setShowCalendar(false)} 
+            <button
+              onClick={() => setShowCalendar(false)}
               className="w-full py-4 bg-slate-200 text-slate-700 font-black rounded-xl hover:bg-slate-300 uppercase tracking-widest text-sm transition-colors"
             >
               Close

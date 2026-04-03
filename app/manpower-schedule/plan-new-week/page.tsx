@@ -13,6 +13,7 @@ import {
   COLUMNS, BRANCH_SLOTS_CONFIG,
   getTimeSlotsForDay, isAdminSlot, getEmployeeColor,
   getWorkingDaysForBranch, isOpeningClosingSlot,
+  isManagerOnDutySlot, // <-- NEW IMPORT
   SELECT_ARROW_WHITE, SELECT_ARROW_DARK
 } from "@/lib/manpowerUtils";
 
@@ -85,7 +86,7 @@ function PlanNewWeekPage() {
   const [hasConfirmedBranch, setHasConfirmedBranch] = useState(false);
   const [hasConfirmedWeek, setHasConfirmedWeek] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [editingDays, setEditingDays] = useState<Record<string, boolean>>(
@@ -96,6 +97,14 @@ function PlanNewWeekPage() {
   const [branchManagerData, setBranchManagerData] = useState<Record<string, string[]>>({});
   const [columnReplacementBranch, setColumnReplacementBranch] = useState<Record<string, string>>({});
   const [managerReplacementBranch, setManagerReplacementBranch] = useState<Record<string, string>>({});
+  // branch → set of employee names already assigned in their saved schedule for this week
+  const [scheduledElsewhere, setScheduledElsewhere] = useState<Record<string, Record<string, Set<string>>>>({});
+
+  // --- ADD EMPLOYEE MODAL ---
+  const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
+  const [newEmployeeName, setNewEmployeeName] = useState("");
+  const [addEmployeeError, setAddEmployeeError] = useState("");
+  const [isAddingEmployee, setIsAddingEmployee] = useState(false);
 
   // --- NEW AUTOMATION FOR BRANCH MANAGERS ---
   useEffect(() => {
@@ -128,27 +137,71 @@ function PlanNewWeekPage() {
     }
   }, [startDateStr, endDateStr, searchParams]);
 
+  // Restore draft from localStorage when branch + week are confirmed
   useEffect(() => {
-    const fetchStaff = async () => {
-      const res = await fetch('/api/branch-staff');
-      const staffList = await res.json();
+    if (!selectedBranch || !startDateStr || isLocked) return;
+    const draftKey = `draft_${selectedBranch}_${startDateStr}`;
+    const draft = localStorage.getItem(draftKey);
+    if (draft) {
+      try {
+        const { selections: s, notes: n } = JSON.parse(draft);
+        if (s) setSelections(s);
+        if (n) setNotes(n);
+      } catch {}
+    }
+  }, [selectedBranch, startDateStr, isLocked]);
 
-      const grouped: Record<string, string[]> = {};
-      const managers: Record<string, string[]> = {};
-      staffList.forEach((s: any) => {
-        if (!grouped[s.branch]) grouped[s.branch] = [];
-        grouped[s.branch].push(s.name);
+  // Auto-save draft to localStorage whenever selections or notes change
+  useEffect(() => {
+    if (!selectedBranch || !startDateStr || isLocked) return;
+    const draftKey = `draft_${selectedBranch}_${startDateStr}`;
+    localStorage.setItem(draftKey, JSON.stringify({ selections, notes }));
+  }, [selections, notes, selectedBranch, startDateStr, isLocked]);
 
-        if (s.role && s.role.startsWith('branch_manager')) {
-          if (!managers[s.branch]) managers[s.branch] = [];
-          managers[s.branch].push(s.name);
-        }
-      });
-      setBranchStaffData(grouped);
-      setBranchManagerData(managers);
+  const fetchStaff = async () => {
+    const res = await fetch('/api/branch-staff');
+    const staffList = await res.json();
+    const grouped: Record<string, string[]> = {};
+    const managers: Record<string, string[]> = {};
+    staffList.forEach((s: any) => {
+      if (!grouped[s.branch]) grouped[s.branch] = [];
+      grouped[s.branch].push(s.name);
+      if (s.role && s.role.startsWith('branch_manager')) {
+        if (!managers[s.branch]) managers[s.branch] = [];
+        managers[s.branch].push(s.name);
+      }
+    });
+    setBranchStaffData(grouped);
+    setBranchManagerData(managers);
+  };
+
+  useEffect(() => { fetchStaff(); }, []);
+
+  // Fetch saved schedules for this week to detect cross-branch conflicts
+  useEffect(() => {
+    if (!startDateStr) return;
+    const fetchSavedSchedules = async () => {
+      try {
+        const res = await fetch('/api/get-schedules');
+        const data = await res.json();
+        if (!data.success) return;
+        const map: Record<string, Record<string, Set<string>>> = {};
+        data.schedules.forEach((s: any) => {
+          if (s.startDate !== startDateStr || s.branch === selectedBranch) return;
+          const dayMap: Record<string, Set<string>> = {};
+          Object.entries(s.selections || {}).forEach(([key, val]: [string, any]) => {
+            if (!val || val === "None") return;
+            const dayName = key.split('-')[0];
+            if (!dayMap[dayName]) dayMap[dayName] = new Set();
+            dayMap[dayName].add(val as string);
+          });
+          if (Object.keys(dayMap).length > 0) map[s.branch] = dayMap;
+        });
+        setScheduledElsewhere(map);
+      } catch {}
     };
-    fetchStaff();
-  }, []);
+    fetchSavedSchedules();
+  }, [startDateStr, selectedBranch]);
 
   // Format Helper
   const getDateForDay = (dayName: string) => {
@@ -183,6 +236,15 @@ function PlanNewWeekPage() {
     }
   };
 
+  const clearManagerForDay = (day: string) => {
+    if (isLocked) return;
+    setSelections((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => { if (key.startsWith(`${day}-`) && key.endsWith(`-MANAGER`)) delete next[key]; });
+      return next;
+    });
+  };
+
   const clearColumnForDay = (day: string, columnId: string) => {
     if (isLocked) return;
     setSelections((prev) => {
@@ -199,11 +261,9 @@ function PlanNewWeekPage() {
       const next = { ...prev };
       if (!name) {
         delete next[`${day}-${targetTime}-${columnId}`];
-        return next;
+      } else {
+        next[`${day}-${targetTime}-${columnId}`] = name;
       }
-      getTimeSlotsForDay(day, selectedBranch).forEach((slot) => {
-        next[`${day}-${slot}-${columnId}`] = name;
-      });
       return next;
     });
   };
@@ -214,7 +274,7 @@ function PlanNewWeekPage() {
   };
 
   const calculateStaffHours = () => {
-    const managerNames = new Set(branchManagerData[selectedBranch] || []);
+    const managerNames = new Set(Object.values(branchManagerData).flat());
     const selectedInSlots = Object.values(selections).filter(val => val !== "" && val !== "None" && !managerNames.has(val));
     const nonManagerStaff = activeStaffList.filter(name => !managerNames.has(name));
     const uniqueEmployeesToTrack = Array.from(new Set([...nonManagerStaff, ...selectedInSlots]));
@@ -280,12 +340,36 @@ function PlanNewWeekPage() {
 
       if (!response.ok) throw new Error("Failed to save");
 
+      // Clear the draft now that it's been finalized
+      localStorage.removeItem(`draft_${selectedBranch}_${startDateStr}`);
       alert("Schedule Finalized and Saved to Database! 🚀");
       router.push("/manpower-schedule");
       
     } catch (error) {
       console.error(error);
       alert("Uh oh! Something went wrong while saving to the database.");
+    }
+  };
+
+  const handleAddEmployee = async () => {
+    if (!newEmployeeName.trim()) { setAddEmployeeError("Name cannot be empty."); return; }
+    setIsAddingEmployee(true);
+    setAddEmployeeError("");
+    try {
+      const res = await fetch('/api/branch-staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newEmployeeName.trim(), branch: selectedBranch }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAddEmployeeError(data.error || "Failed to add employee."); return; }
+      await fetchStaff();
+      setNewEmployeeName("");
+      setShowAddEmployeeModal(false);
+    } catch {
+      setAddEmployeeError("Something went wrong. Please try again.");
+    } finally {
+      setIsAddingEmployee(false);
     }
   };
 
@@ -299,7 +383,7 @@ function PlanNewWeekPage() {
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       
       {/* SIDEBAR */}
-      <Sidebar sidebarOpen={sidebarOpen} onCollapse={() => setSidebarOpen(false)} />
+      <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
 
       {/* MAIN CONTENT */}
       <main className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ zoom: 0.9 }}>
@@ -307,33 +391,21 @@ function PlanNewWeekPage() {
         {/* Sticky Header Area */}
         <div className="shrink-0 w-full mx-auto px-4 md:px-6 pt-4 md:pt-6 z-50 bg-slate-50">
           
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center mb-6 relative">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center mb-6 relative">
             <div className="flex items-center gap-6">
                 
-                {/* HAMBURGER BUTTON */}
-                {!sidebarOpen && (
-                  <button
-                    onClick={() => setSidebarOpen(true)}
-                    className="p-3 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-xl transition-colors shadow-sm flex items-center justify-center"
-                    title="Open Sidebar"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </button>
-                )}
 
                 <button
                   onClick={() => router.push('/manpower-schedule')}
-                  className="bg-blue-500 text-white px-6 py-3 rounded-xl flex items-center gap-3 shadow-md hover:bg-blue-600 transition-colors"
+                  className="bg-blue-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 shadow-md hover:bg-blue-600 transition-colors"
                 >
-                  <span className="text-2xl">👥</span>
-                  <span className="text-lg font-black uppercase tracking-wide leading-none">HRMS</span>
+                  <span className="text-xl">👥</span>
+                  <span className="text-base font-black uppercase tracking-wide leading-none">HRMS</span>
                 </button>
                 
                 <div className="h-8 w-px bg-slate-300"></div>
                 
-                <h1 className="text-2xl font-black uppercase tracking-wide text-slate-800 leading-none m-0 flex items-center gap-4">
+                <h1 className="text-lg font-black uppercase tracking-wide text-slate-800 leading-none m-0 flex items-center gap-4">
                   <span>Plan New Week {hasConfirmedBranch && `- ${selectedBranch}`}</span>
                   
                   {hasConfirmedWeek && startDateStr && endDateStr && (
@@ -344,15 +416,25 @@ function PlanNewWeekPage() {
                 </h1>
             </div>
 
-            {/* ONLY show "Change Branch" if they are NOT a Branch Manager */}
-            {hasConfirmedBranch && !hasConfirmedWeek && userRole !== "BRANCH_MANAGER" && (
-              <button 
-                onClick={() => setHasConfirmedBranch(false)} 
-                className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-6 py-3 rounded-xl font-bold uppercase transition-colors shadow-sm"
-              >
-                ← Change Branch
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {hasConfirmedBranch && hasConfirmedWeek && !isLocked && (
+                <button
+                  onClick={() => { setShowAddEmployeeModal(true); setNewEmployeeName(""); setAddEmployeeError(""); }}
+                  className="bg-green-600 text-white px-5 py-3 rounded-xl font-black uppercase text-sm tracking-wide hover:bg-green-700 transition-colors shadow-sm flex items-center gap-2"
+                >
+                  + Add Employee
+                </button>
+              )}
+              {/* ONLY show "Change Branch" if they are NOT a Branch Manager */}
+              {hasConfirmedBranch && !hasConfirmedWeek && userRole !== "BRANCH_MANAGER" && (
+                <button
+                  onClick={() => setHasConfirmedBranch(false)}
+                  className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-6 py-3 rounded-xl font-bold uppercase transition-colors shadow-sm"
+                >
+                  ← Change Branch
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -442,6 +524,9 @@ function PlanNewWeekPage() {
                                     ))}
                                   </select>
                                 )}
+                                {!isLocked && isEditing && (
+                                  <button onClick={() => clearManagerForDay(day)} className="text-[8px] text-orange-300 font-bold hover:text-white uppercase px-2 py-0.5 rounded transition-colors bg-slate-600">CLEAR</button>
+                                )}
                               </div>
                             </th>
                             {COLUMNS.map(col => (
@@ -472,28 +557,63 @@ function PlanNewWeekPage() {
                         <tbody>
                           {daySlots.map((slot, slotIndex) => {
                             const isOpenClose = isOpeningClosingSlot(slot, selectedBranch);
+                            // --- KEY CHANGE: check if manager dropdown applies to this slot ---
+                            const showManagerDropdown = isManagerOnDutySlot(slot, selectedBranch, day);
+                            const managerKey = `${day}-${slot}-MANAGER`;
+                            const managerVal = selections[managerKey] || "";
+
                             return (
                             <tr key={slot} className={`border-b transition-colors group ${isOpenClose ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
                               <td className={`p-3 font-bold border-r border-slate-200 text-xs sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] transition-colors text-slate-900 ${isOpenClose ? 'bg-blue-100 group-hover:bg-blue-100' : 'bg-slate-50 group-hover:bg-slate-100'}`}>
                                   {slot}
                               </td>
-                              {slotIndex === 0 && (
-                                <td rowSpan={daySlots.length} className="p-2 border-l align-middle bg-emerald-50 w-[180px]">
-                                  <select
-                                    disabled={!isEditing}
-                                    value={notes[`${day}-MANAGER`] || ""}
-                                    onChange={(e) => setNotes(prev => ({ ...prev, [`${day}-MANAGER`]: e.target.value }))}
-                                    className="w-full p-2 rounded text-center font-bold text-xs border border-emerald-200 bg-white text-slate-700 appearance-none"
-                                  >
-                                    <option value="">-- Select --</option>
-                                    {(branchManagerData[managerReplacementBranch[day] || selectedBranch] || []).map(e => (
-                                      <option key={e} value={e}>{e}</option>
-                                    ))}
-                                  </select>
+
+                              {/* ---- MANAGER ON DUTY CELL ---- */}
+                              {!isOpenClose && (
+                                <td className="p-2 border-l align-middle bg-emerald-50 w-[180px]">
+                                  {showManagerDropdown ? (
+                                    // Show dropdown only for slots where manager is on duty
+                                    <select
+                                      disabled={!isEditing}
+                                      value={managerVal}
+                                      onChange={(e) => handleNameSelect(day, slot, "MANAGER", e.target.value)}
+                                      className={`w-full p-2 rounded text-center font-bold text-xs appearance-none transition-all ${
+                                        managerVal
+                                          ? getEmployeeColor(managerVal)
+                                          : 'border border-emerald-200 bg-white text-slate-700'
+                                      }`}
+                                      style={{
+                                        backgroundImage: `url("${managerVal ? SELECT_ARROW_WHITE : SELECT_ARROW_DARK}")`,
+                                        backgroundPosition: "right 0.3rem center",
+                                        backgroundSize: "8px",
+                                        backgroundRepeat: "no-repeat"
+                                      }}
+                                    >
+                                      <option value="">-- Select --</option>
+                                      {(branchManagerData[managerReplacementBranch[day] || selectedBranch] || []).map(e => {
+                                        const mgReplacementBranch = managerReplacementBranch[day];
+                                        const conflictBranch = mgReplacementBranch
+                                          ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                          : undefined;
+                                        const isConflict = !!conflictBranch;
+                                        return (
+                                          <option key={e} value={e} disabled={isConflict}>
+                                            {isConflict ? `${e} (at ${conflictBranch})` : e}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  ) : (
+                                    // Empty cell — manager not on duty for this slot (e.g. 08:30PM onwards)
+                                    <div className="w-full h-[34px] rounded bg-emerald-100/50 border border-dashed border-emerald-200 flex items-center justify-center">
+                                      <span className="text-[9px] text-emerald-300 font-bold uppercase tracking-wider">—</span>
+                                    </div>
+                                  )}
                                 </td>
                               )}
+
                               {isOpenClose ? (
-                                <td colSpan={COLUMNS.length + 1} className="p-2 border-l text-center">
+                                <td colSpan={COLUMNS.length + 2} className="p-2 border-l text-center">
                                   <span className="inline-flex items-center gap-2 bg-blue-600 text-white text-xs font-black px-4 py-1.5 rounded-full uppercase tracking-widest">
                                     All Staff — Executive ({slotIndex === 0 ? "Opening" : "Closing"})
                                   </span>
@@ -506,11 +626,24 @@ function PlanNewWeekPage() {
                                     const colStaffList = replacementBranch
                                       ? (branchStaffData[replacementBranch] || [])
                                       : activeStaffList;
-                                    const namesUsedInOtherColumns = new Set(
+                                    // Block names used in same slot across any column type (cross-type per-slot conflict)
+                                    const namesInSameSlot = new Set(
                                       COLUMNS.filter(c => c.id !== col.id)
+                                        .map(c => selections[`${day}-${slot}-${c.id}`])
+                                        .filter(Boolean)
+                                    );
+                                    // Block names used in same column type across any slot (same-role dedup)
+                                    const namesInSameType = new Set(
+                                      COLUMNS.filter(c => c.id !== col.id && c.type === col.type)
                                         .flatMap(c => daySlots.map(s => selections[`${day}-${s}-${c.id}`]))
                                         .filter(Boolean)
                                     );
+                                    const namesUsedInOtherColumns = new Set([
+                                      ...namesInSameSlot,
+                                      ...namesInSameType,
+                                      // Also block whoever is selected as manager for this slot
+                                      ...(managerVal ? [managerVal] : []),
+                                    ]);
 
                                     return (
                                       <td key={col.id} className={`p-1.5 border-l ${col.type === 'exec' ? 'bg-slate-50' : ''}`}>
@@ -518,11 +651,19 @@ function PlanNewWeekPage() {
                                           className={`w-full p-2 rounded appearance-none text-center font-bold transition-all text-xs ${val ? getEmployeeColor(val) : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50'}`}
                                           style={{ backgroundImage: `url("${val ? SELECT_ARROW_WHITE : SELECT_ARROW_DARK}")`, backgroundPosition: "right 0.3rem center", backgroundSize: "8px", backgroundRepeat: "no-repeat" }}>
                                           <option value="">None</option>
-                                          {colStaffList.map(e => (
-                                            <option key={e} value={e} disabled={namesUsedInOtherColumns.has(e)} className="text-slate-800 font-bold">
-                                              {e}
-                                            </option>
-                                          ))}
+                                          {colStaffList.map(e => {
+                                            const usedInCol = namesUsedInOtherColumns.has(e);
+                                            // find which branch already has this employee scheduled on this specific day
+                                            const conflictBranch = replacementBranch
+                                              ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                              : undefined;
+                                            const isConflict = !!conflictBranch;
+                                            return (
+                                              <option key={e} value={e} disabled={usedInCol || isConflict} className="text-slate-800 font-bold">
+                                                {isConflict ? `${e} (at ${conflictBranch})` : e}
+                                              </option>
+                                            );
+                                          })}
                                         </select>
                                       </td>
                                     );
@@ -556,6 +697,48 @@ function PlanNewWeekPage() {
           )}
         </div>
       </main>
+
+      {/* ADD EMPLOYEE MODAL */}
+      {showAddEmployeeModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white p-8 rounded-[2rem] shadow-2xl border border-slate-100 w-full max-w-sm flex flex-col gap-5">
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight text-center">Add Employee</h2>
+            <div className="text-xs text-slate-500 text-center font-bold uppercase tracking-widest bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
+              Branch: {selectedBranch}
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-black uppercase text-slate-500">Full Name</label>
+              <input
+                type="text"
+                value={newEmployeeName}
+                onChange={(e) => { setNewEmployeeName(e.target.value); setAddEmployeeError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAddEmployee(); }}
+                placeholder="e.g. Ahmad Bin Ali"
+                className="w-full p-3 border-2 border-slate-200 rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-green-500 transition-colors"
+                autoFocus
+              />
+              {addEmployeeError && (
+                <p className="text-xs text-red-500 font-bold">{addEmployeeError}</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowAddEmployeeModal(false)}
+                className="flex-1 py-3 bg-slate-200 text-slate-700 font-black rounded-xl hover:bg-slate-300 uppercase tracking-widest text-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddEmployee}
+                disabled={isAddingEmployee}
+                className="flex-1 py-3 bg-green-600 text-white font-black rounded-xl hover:bg-green-700 disabled:bg-slate-300 uppercase tracking-widest text-sm transition-colors"
+              >
+                {isAddingEmployee ? "Saving..." : "Add"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
