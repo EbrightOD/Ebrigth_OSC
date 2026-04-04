@@ -39,10 +39,9 @@ export default function HomePage() {
           </div>
           
           {/* NOW USING LIVE DATA FROM POSTGRESQL! */}
-          <UserHeader 
-            userName={branchName} 
-            userRole={userRole} 
-            userEmail={userEmail} 
+          <UserHeader
+            userName={branchName}
+            userEmail={userEmail}
           />
         </div>
       </header>

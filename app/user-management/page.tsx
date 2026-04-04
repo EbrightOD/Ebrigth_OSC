@@ -106,7 +106,7 @@ export default function UserManagementPage() {
               <p className="text-blue-100 mt-1">Manage system users and permissions</p>
             </div>
           </div>
-          <UserHeader userName="Admin User" userRole="SUPER_ADMIN" userEmail="admin@ebright.com" />
+          <UserHeader userName="Admin User" userEmail="admin@ebright.com" />
         </div>
       </header>
 
@@ -199,7 +199,7 @@ export default function UserManagementPage() {
           )}
 
           {/* User Management Table */}
-          <UserManagement key={refreshKey} userRole="SUPER_ADMIN" />
+          <UserManagement key={refreshKey} />
         </main>
       </div>
     </div>
