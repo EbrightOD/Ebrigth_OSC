@@ -207,12 +207,27 @@ export default function UpdateSchedulePage() {
   };
 
   const handleActualNameSelect = (day: string, targetTime: string, colId: string, name: string) => {
+    if (!selectedRecord) return;
     setUpdatedSelections((prev) => {
       const next = { ...prev };
       if (!name || name === "None") {
         delete next[`${day}-${targetTime}-${colId}`];
       } else {
-        next[`${day}-${targetTime}-${colId}`] = name;
+        // Auto-fill ALL non-opening/closing slots in this column (same logic as Plan New Week)
+        const daySlots = getTimeSlotsForDay(day, selectedRecord.branch);
+        daySlots.forEach((slot) => {
+          if (!isOpeningClosingSlot(slot, selectedRecord.branch)) {
+            if (colId === "MANAGER") {
+              const usedAsStaff = COLUMNS.some(c => next[`${day}-${slot}-${c.id}`] === name);
+              if (usedAsStaff) return;
+            } else {
+              if (next[`${day}-${slot}-MANAGER`] === name) return;
+              const usedInOtherColumn = COLUMNS.filter(c => c.id !== colId).some(c => next[`${day}-${slot}-${c.id}`] === name);
+              if (usedInOtherColumn) return;
+            }
+            next[`${day}-${slot}-${colId}`] = name;
+          }
+        });
       }
       return next;
     });
@@ -383,8 +398,7 @@ export default function UpdateSchedulePage() {
                 const slots = getTimeSlotsForDay(day, selectedRecord.branch);
                 const activeStaffList = Array.from(new Set([
                   ...SHARED_EMPLOYEES,
-                  ...(branchStaffData[selectedRecord.branch] || []),
-                  ...globalUsedNames
+                  ...(branchStaffData[selectedRecord.branch] || [])
                 ]));
                 return (
                   <div key={day} className="bg-white rounded-xl shadow-lg p-3 border-t-2 border-orange-500">
@@ -557,18 +571,7 @@ export default function UpdateSchedulePage() {
                                           // Show editable dropdown for manager slots
                                           <select
                                             value={actualManagerVal}
-                                            onChange={(e) => {
-                                              const val = e.target.value;
-                                              setUpdatedSelections(prev => {
-                                                const next = { ...prev };
-                                                if (val) {
-                                                  next[`${day}-${slot}-MANAGER`] = val;
-                                                } else {
-                                                  delete next[`${day}-${slot}-MANAGER`];
-                                                }
-                                                return next;
-                                              });
-                                            }}
+                                            onChange={(e) => handleActualNameSelect(day, slot, "MANAGER", e.target.value)}
                                             className="w-full h-full p-1 text-[11px] font-bold text-center border border-emerald-200 rounded bg-white appearance-none outline-none"
                                           >
                                             <option value="">-- Select --</option>
