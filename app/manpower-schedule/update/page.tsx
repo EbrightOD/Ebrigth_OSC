@@ -229,12 +229,20 @@ export default function UpdateSchedulePage() {
     }
   };
 
-  const sanitizeSelections = (selections: Record<string, any>) =>
-    Object.fromEntries(Object.entries(selections || {}).filter(([, v]) => v && v !== "None"));
+  const sanitizeSelections = (selections: Record<string, any>, branch?: string) => {
+    // Build case-insensitive lookup map from all known staff
+    const allKnownStaff = [...SHARED_EMPLOYEES, ...(branch ? (branchStaffData[branch] || []) : Object.values(branchStaffData).flat())];
+    const nameLookup = new Map(allKnownStaff.map(n => [n.toLowerCase(), n]));
+    return Object.fromEntries(
+      Object.entries(selections || {})
+        .filter(([, v]) => v && v !== "None")
+        .map(([k, v]) => [k, nameLookup.get((v as string).toLowerCase()) ?? v])
+    );
+  };
 
   const handleSelectRecord = (record: any) => {
     setSelectedRecord(record);
-    setUpdatedSelections(sanitizeSelections(record.selections));
+    setUpdatedSelections(sanitizeSelections(record.selections, record.branch));
     setUpdatedNotes({ ...record.notes });
     const days = getWorkingDaysForBranch(record.branch);
     if (days.length > 0) setSelectedDay(days[0]);
@@ -367,9 +375,6 @@ export default function UpdateSchedulePage() {
 
   if (selectedRecord) {
     
-    const namesUsedInOriginal = Object.values(selectedRecord.originalSelections || {}).filter(Boolean) as string[];
-    const namesUsedInUpdates = Object.values(updatedSelections || {}).filter(Boolean) as string[];
-    const globalUsedNames = Array.from(new Set([...namesUsedInOriginal, ...namesUsedInUpdates]));
     const originalData = selectedRecord.originalSelections || selectedRecord.selections || {};
     const originalNotes = selectedRecord.notes || selectedRecord.originalNotes || {};
 
