@@ -583,7 +583,7 @@ export default function UpdateSchedulePage() {
                                               const isConflict = !!conflictBranch;
                                               return (
                                                 <option key={e} value={e} disabled={isConflict}>
-                                                  {isConflict ? `${getShortName(e)} (at ${conflictBranch})` : getShortName(e)}
+                                                  {isConflict ? `${e} (at ${conflictBranch})` : e}
                                                 </option>
                                               );
                                             })}
@@ -631,7 +631,7 @@ export default function UpdateSchedulePage() {
                                                   const isConflict = !!conflictBranch;
                                                   return (
                                                     <option key={e} value={e} disabled={namesUsedInOtherColumns.has(e) || isConflict} className="text-black">
-                                                      {isConflict ? `${getShortName(e)} (at ${conflictBranch})` : getShortName(e)}
+                                                      {isConflict ? `${e} (at ${conflictBranch})` : e}
                                                     </option>
                                                   );
                                                 })}
