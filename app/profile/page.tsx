@@ -16,7 +16,7 @@ export default function ProfilePage() {
             <h1 className="text-3xl font-bold">User Profile</h1>
             <p className="text-blue-100 mt-1">Manage your account settings</p>
           </div>
-          <UserHeader userName="Admin User" userRole="SUPER_ADMIN" userEmail="admin@ebright.com" />
+          <UserHeader userName="Admin User" userEmail="admin@ebright.com" />
         </div>
       </header>
 

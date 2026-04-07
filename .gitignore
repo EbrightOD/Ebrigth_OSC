@@ -37,6 +37,9 @@ yarn-error.log*
 # local sqlite dev database
 dev.db
 
+# attendance email notification state (auto-generated, resets daily)
+.notify-state.json
+
 # vercel
 .vercel
 

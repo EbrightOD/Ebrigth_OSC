@@ -16,7 +16,7 @@ export default function RegisterPage() {
             <h1 className="text-3xl font-bold">Add User</h1>
             <p className="text-blue-100 mt-1">Add new employees to the system</p>
           </div>
-          <UserHeader userName="Admin User" userRole="SUPER_ADMIN" userEmail="admin@ebright.com" />
+          <UserHeader userName="Admin User" userEmail="admin@ebright.com" />
         </div>
       </header>
 

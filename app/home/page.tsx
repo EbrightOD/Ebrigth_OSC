@@ -23,9 +23,7 @@ export default function HomePage() {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-blue-600 font-bold text-xl">Loading Dashboard...</div>;
   }
 
-  // Safely extract our custom session variables
   const userEmail = session?.user?.email || "";
-  const userRole = (session?.user as any)?.role || "USER";
   const branchName = (session?.user as any)?.branchName || "Admin User";
 
   return (
@@ -39,10 +37,9 @@ export default function HomePage() {
           </div>
           
           {/* NOW USING LIVE DATA FROM POSTGRESQL! */}
-          <UserHeader 
-            userName={branchName} 
-            userRole={userRole} 
-            userEmail={userEmail} 
+          <UserHeader
+            userName={branchName}
+            userEmail={userEmail}
           />
         </div>
       </header>
@@ -60,8 +57,7 @@ export default function HomePage() {
         )}
 
         <main className="flex-1 overflow-y-auto">
-          {/* We will pass the user role into the DashboardHome component so it knows what to grey out! */}
-          <DashboardHome userRole={userRole} />
+          <DashboardHome />
         </main>
       </div>
     </div>

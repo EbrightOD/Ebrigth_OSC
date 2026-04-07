@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
-import SubAccountSwitcher, { subAccounts } from "./SubAccountSwitcher";
+import { useState } from "react";
 import Sidebar from "./Sidebar";
 
 const attendanceItems = [
@@ -13,31 +12,9 @@ const attendanceItems = [
   { name: "Leave", href: "/attendance/leave", icon: "🏖️", code: "3.4.4" },
 ];
 
-const STORAGE_KEY = "selectedAccount";
-
 export default function AttendanceOptions() {
   const router = useRouter();
-  const [selectedAccount, setSelectedAccount] = useState(subAccounts[0]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  useEffect(() => {
-    const savedAccount = localStorage.getItem(STORAGE_KEY);
-    if (savedAccount) {
-      const account = subAccounts.find((acc) => acc.name === savedAccount);
-      if (account) {
-        setSelectedAccount(account);
-      }
-    }
-  }, []);
-
-  const permissions: { [key: string]: string[] } = {
-    FullTimer: ["Summary", "Report", "Leave"],
-    HR: ["Summary", "Report", "Appeal", "Leave"],
-    Intern: ["Summary", "Leave"],
-  };
-
-  const accessibleItems = permissions[selectedAccount.name] || [];
-  const isAccessible = (itemName: string): boolean => accessibleItems.includes(itemName);
 
   return (
     <div className="flex min-h-screen bg-blue-50">
@@ -64,7 +41,6 @@ export default function AttendanceOptions() {
                 />
               </svg>
             </button>
-            <SubAccountSwitcher onAccountChange={setSelectedAccount} />
             <button
               onClick={() => router.back()}
               className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
@@ -77,45 +53,17 @@ export default function AttendanceOptions() {
 
         <main className="max-w-5xl mx-auto px-4 py-12">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {attendanceItems.map((item) => {
-              const accessible = isAccessible(item.name);
-              const content = (
-                <div
-                  className={`bg-white rounded-xl shadow-md transition-all p-12 flex flex-col items-center border-t-4 ${
-                    accessible
-                      ? "border-blue-500 hover:shadow-2xl cursor-pointer"
-                      : "border-gray-300 opacity-50 cursor-not-allowed"
-                  }`}
-                >
-                  <span className={`text-6xl mb-4 ${!accessible ? "grayscale" : ""}`}>
-                    {item.icon}
-                  </span>
+            {attendanceItems.map((item) => (
+              <Link key={item.name} href={item.href}>
+                <div className="bg-white rounded-xl shadow-md transition-all p-12 flex flex-col items-center border-t-4 border-blue-500 hover:shadow-2xl hover:scale-105 cursor-pointer">
+                  <span className="text-6xl mb-4">{item.icon}</span>
                   <h2 className="text-2xl font-bold text-gray-800">{item.name}</h2>
                   <span className="text-xs text-gray-400 mt-2 uppercase tracking-widest">
                     {item.code}
                   </span>
-                  {!accessible && (
-                    <span className="text-xs text-red-600 font-semibold mt-4">
-                      Access Denied
-                    </span>
-                  )}
                 </div>
-              );
-
-              if (accessible) {
-                return (
-                  <Link key={item.name} href={item.href}>
-                    {content}
-                  </Link>
-                );
-              }
-
-              return (
-                <div key={item.name} onClick={(e) => e.preventDefault()}>
-                  {content}
-                </div>
-              );
-            })}
+              </Link>
+            ))}
           </div>
         </main>
       </div>
