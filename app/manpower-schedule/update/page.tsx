@@ -860,87 +860,46 @@ export default function UpdateSchedulePage() {
             <div className="flex-1 overflow-y-auto w-full mx-auto px-4 md:px-6 pb-12">
               {isLoading ? (
                 <div className="flex justify-center items-center h-40">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+                </div>
+              ) : !filterBranch && !filterYear && !filterMonth && !filterQuick ? (
+                <div className="flex flex-col items-center justify-center h-[50vh] gap-4 text-center">
+                  <div className="text-6xl">🔍</div>
+                  <p className="text-slate-700 font-black text-xl uppercase tracking-widest">Select a filter to view records</p>
+                  <p className="text-slate-400 font-bold text-sm">Use Branch, Year, Month or the quick buttons above</p>
                 </div>
               ) : filteredHistory.length === 0 ? (
                 <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-300 text-center shadow-sm">
-                    <p className="text-slate-500 font-bold text-lg uppercase tracking-widest">No schedules available matching filters.</p>
+                  <p className="text-slate-500 font-bold text-lg uppercase tracking-widest">No schedules found matching your filters.</p>
                 </div>
-              ) : (() => {
-                  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                  const WEEK_LABELS = ["1 – 7","8 – 14","15 – 21","22 – 31"];
-                  const getWeekBucket = (dateStr: string) => {
-                    const d = parseInt(format(parseISO(dateStr), "d"));
-                    if (d <= 7) return 0; if (d <= 14) return 1; if (d <= 21) return 2; return 3;
-                  };
-                  const byYear: Record<string, any[]> = {};
-                  filteredHistory.forEach(r => {
-                    const y = format(parseISO(r.startDate), "yyyy");
-                    if (!byYear[y]) byYear[y] = [];
-                    byYear[y].push(r);
-                  });
-                  return Object.keys(byYear).sort((a,b) => parseInt(b)-parseInt(a)).map(year => {
-                    const recs = byYear[year];
-                    const monthIdxs = Array.from(new Set(recs.map(r => parseInt(format(parseISO(r.startDate),"M"))-1))).sort((a,b)=>a-b);
-                    const buckets = Array.from(new Set(recs.map(r => getWeekBucket(r.startDate)))).sort();
-                    const lookup: Record<string,any[]> = {};
-                    recs.forEach(r => {
-                      const k = `${parseInt(format(parseISO(r.startDate),"M"))-1}-${getWeekBucket(r.startDate)}`;
-                      if (!lookup[k]) lookup[k] = [];
-                      lookup[k].push(r);
-                    });
-                    return (
-                      <div key={year} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                        <div className="bg-[#2D3F50] px-6 py-3">
-                          <h2 className="text-white font-black text-xl uppercase tracking-widest">{year}</h2>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-black uppercase text-slate-400 mb-3">{filteredHistory.length} record{filteredHistory.length !== 1 ? "s" : ""} found</p>
+                  {filteredHistory
+                    .slice()
+                    .sort((a: any, b: any) => b.startDate.localeCompare(a.startDate))
+                    .map((record: any) => (
+                      <button key={record.id} onClick={() => handleSelectRecord(record)}
+                        className="w-full text-left bg-white hover:bg-orange-50 border border-slate-200 hover:border-orange-300 rounded-2xl px-6 py-4 transition-all shadow-sm flex items-center justify-between gap-4 group">
+                        <div className="flex items-center gap-4">
+                          <div className="w-2 h-10 rounded-full bg-orange-400 group-hover:bg-orange-500 transition-colors shrink-0"></div>
+                          <div>
+                            <div className="font-black text-slate-800 uppercase tracking-wide">{record.branch}</div>
+                            <div className="text-sm text-slate-500 font-bold mt-0.5">
+                              {format(parseISO(record.startDate), "dd MMM yyyy")} – {format(parseISO(record.endDate), "dd MMM yyyy")}
+                            </div>
+                          </div>
                         </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full border-collapse">
-                            <thead>
-                              <tr className="bg-slate-100">
-                                <th className="p-3 text-xs font-black uppercase text-slate-400 border-b border-r border-slate-200 w-20"></th>
-                                {monthIdxs.map(mi => (
-                                  <th key={mi} className="p-3 text-xs font-black uppercase text-slate-600 border-b border-r border-slate-200 text-center min-w-[140px]">
-                                    {MONTH_NAMES[mi]}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {buckets.map(bucket => (
-                                <tr key={bucket} className="border-b border-slate-100">
-                                  <td className="p-3 text-xs font-black text-slate-400 border-r border-slate-200 text-center whitespace-nowrap bg-slate-50">
-                                    {WEEK_LABELS[bucket]}
-                                  </td>
-                                  {monthIdxs.map(mi => {
-                                    const cellRecs = lookup[`${mi}-${bucket}`] || [];
-                                    return (
-                                      <td key={mi} className="p-2 border-r border-slate-200 align-top">
-                                        {cellRecs.length > 0 ? (
-                                          <div className="flex flex-col gap-1">
-                                            {cellRecs.map(record => (
-                                              <button key={record.id} onClick={() => handleSelectRecord(record)}
-                                                className="w-full text-left px-3 py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-lg transition-colors">
-                                                <div className="font-black text-xs text-orange-800 uppercase">{record.branch}</div>
-                                                <div className="text-[10px] text-orange-500 font-bold mt-0.5">
-                                                  {format(parseISO(record.startDate),"dd MMM")} – {format(parseISO(record.endDate),"dd MMM")}
-                                                </div>
-                                              </button>
-                                            ))}
-                                          </div>
-                                        ) : <span className="text-slate-200 text-xs flex justify-center">—</span>}
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-widest ${record.status === "Updated" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                            {record.status || "Finalized"}
+                          </span>
+                          <span className="text-slate-300 group-hover:text-orange-400 font-black text-lg transition-colors">→</span>
                         </div>
-                      </div>
-                    );
-                  });
-              })()}
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
         </main>
       </div>
