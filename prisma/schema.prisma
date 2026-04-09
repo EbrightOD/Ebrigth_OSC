@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String?
+  email        String   @unique
+  passwordHash String
+  role         String   @default("BRANCH_MANAGER")
+  branchName   String?
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+}
+
+model ManpowerSchedule {
+  id                 String   @id
+  branch             String
+  startDate          String
+  endDate            String
+  selections         Json
+  notes              Json
+  originalSelections Json
+  originalNotes      Json
+  status             String   @default("Finalized")
+  submittedAt        DateTime @default(now())
+  originalAuthor     String
+}
+
+model Employee {
+  id        Int      @id @default(autoincrement())
+  name      String
+  nickname  String?
+  branch    String
+  position  String?
+  createdAt DateTime @default(now())
+
+  @@unique([name, branch])
+}
+
+model BranchStaff {
+  id                 Int       @id @default(autoincrement())
+  name               String?
+  branch             String?
+  createdAt          DateTime  @default(now())
+  role               String?
+  nickname           String?
+  nric               String?
+  dob                String?
+  age                String?
+  gender             String?
+  nationality        String?
+  home_address       String?
+  phone              String?
+  email              String?
+  residential        String?
+  emergency_name     String?
+  emergency_phone    String?
+  emergency_relation String?
+  signed_date        String?
+  start_date         String?
+  employment_type    String?
+  status             String?
+  bank               String?
+  bank_name          String?
+  bank_account       String?
+  university         String?
+  department         String?
+  position           String?
+  location           String?
+  accessStatus       String?   @default("AUTHORIZED")
+  biometricTemplate  String?
+  contract           String?
+  employeeId         String?
+  endDate            String?
+  probation          String?
+  rate               String?
+  updatedAt          DateTime? @updatedAt
+
+  @@map("BranchStaff")
+}
+
+// Daily attendance log — one row per employee per day.
+// Email flags ensure clock-in/out emails fire exactly once regardless of
+// how many times the scanner route is polled.
+model AttendanceLog {
+  id                 Int      @id @default(autoincrement())
+  date               String   // "YYYY-MM-DD" — used as the day key
+  empNo              String   // scanner employeeNoString
+  empName            String
+  clockInTime        String   // HH:mm:ss display string
+  clockInSerialNo    String   // scanner serialNo that triggered clock-in
+  clockInEmailSent   Boolean  @default(false)
+  clockOutTime       String?  // null until they scan out
+  clockOutSerialNo   String?  // serialNo of the clock-out scan
+  clockOutEmailSent  Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([date, empNo]) // one row per person per day
+}
