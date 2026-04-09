@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useCallback } from "react";
-import SubAccountSwitcher from "./SubAccountSwitcher";
+
 import Sidebar from "./Sidebar";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ function parseCSV(text: string): Employee[] {
     .map((line) => {
       const cols = parseCSVLine(line);
       if (cols.length < 4) return null;
-      const eid = cols[cols.length - 1] ?? "";
+      const eid = cols[8] ?? ""; // col 8 is the EID (e.g. "0800 44 0014"), col 10 is email
       const parts = eid.trim().split(" ");
       const scannerRef = parts.length === 3 ? parts[1] + parts[0].substring(0, 2) + parts[2] : "";
       return {
@@ -89,8 +89,9 @@ function getCheckInStatus(timeStr: string): "On Time" | "Late" {
   return timeToSeconds(timeStr) <= timeToSeconds("09:00:00") ? "On Time" : "Late";
 }
 
-function getCheckOutStatus(timeStr: string): "Normal" | "Left Early" {
-  return timeToSeconds(timeStr) >= timeToSeconds("18:00:00") ? "Normal" : "Left Early";
+function getCheckOutStatus(timeStr: string, isSaturday: boolean): "Normal" | "Left Early" {
+  const threshold = isSaturday ? "19:00:00" : "18:00:00";
+  return timeToSeconds(timeStr) >= timeToSeconds(threshold) ? "Normal" : "Left Early";
 }
 
 function formatTime(d: Date): string {
@@ -144,6 +145,7 @@ function buildAttendanceLogs(
 
     // Look up employee directly by scannerRef derived from CSV EID column
     const emp = employees.find((e) => e.scannerRef === empNo);
+    const isSaturday = first.getDay() === 6;
 
     records.push({
       empNo,
@@ -155,13 +157,20 @@ function buildAttendanceLogs(
       checkInStatus: getCheckInStatus(checkInStr),
       checkOutTime: hasCheckOut ? last : null,
       checkOutStr,
-      checkOutStatus: checkOutStr ? getCheckOutStatus(checkOutStr) : null,
+      checkOutStatus: checkOutStr ? getCheckOutStatus(checkOutStr, isSaturday) : null,
       scanCount: sorted.length,
     });
   }
 
   // Sort: most recent check-in first
   return records.sort((a, b) => b.checkInTime.getTime() - a.checkInTime.getTime());
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -174,10 +183,17 @@ export default function AttendanceSummary() {
   const [logs, setLogs] = useState<AttendanceRecord[]>([]);
   const [scannerStatus, setScannerStatus] = useState<"idle" | "ok" | "error">("idle");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  // Raw event count from scanner — used for debug banner
+  const [rawCount, setRawCount] = useState<number | null>(null);
+  // Scanner IDs seen this session — shown in debug table
+  const [seenScannerIds, setSeenScannerIds] = useState<string[]>([]);
 
   // Stable ref so the polling interval always sees the latest employees
   const employeesRef = useRef<Employee[]>([]);
   useEffect(() => { employeesRef.current = employees; }, [employees]);
+
+  // Track current date for midnight auto-reset
+  const currentDateRef = useRef<string>(getTodayStr());
 
   // ── Load employee CSV ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -189,10 +205,26 @@ export default function AttendanceSummary() {
 
   // ── Poll /api/test-scanner every 5 seconds ─────────────────────────────────
   const fetchScans = useCallback(async () => {
+    // ── Midnight auto-reset ──────────────────────────────────────────────────
+    const todayStr = getTodayStr();
+    if (todayStr !== currentDateRef.current) {
+      currentDateRef.current = todayStr;
+      setLogs([]);
+      setSeenScannerIds([]);
+      setRawCount(null);
+    }
+
     try {
       const res = await fetch("/api/test-scanner");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const raw: RawScanEvent[] = await res.json();
+
+      setRawCount(raw.length);
+
+      // Track all unique scanner IDs seen (for debug table)
+      const ids = [...new Set(raw.map((e) => e.employeeNoString).filter(Boolean))];
+      setSeenScannerIds(ids);
+
       const built = buildAttendanceLogs(raw, employeesRef.current);
       setLogs(built);
       setScannerStatus("ok");
@@ -208,15 +240,20 @@ export default function AttendanceSummary() {
     return () => clearInterval(interval);
   }, [fetchScans]);
 
-  // ── End-of-day reset (clears display; scanner resets naturally at midnight) ─
+  // ── Manual end-of-day reset ────────────────────────────────────────────────
   const handleReset = useCallback(() => {
     if (!window.confirm("Clear the displayed attendance records? The scanner's own data is unaffected.")) return;
     setLogs([]);
+    setSeenScannerIds([]);
+    setRawCount(null);
   }, []);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const checkedInCount = logs.filter((r) => r.checkOutStr === null).length;
   const checkedOutCount = logs.filter((r) => r.checkOutStr !== null).length;
+  const missingEmployees = employees.filter(
+    (e) => e.scannerRef && !seenScannerIds.includes(e.scannerRef)
+  );
 
   return (
     <div className="flex min-h-screen bg-blue-50">
@@ -226,16 +263,6 @@ export default function AttendanceSummary() {
         {/* ── Header ── */}
         <header className="bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4 py-6 flex items-center gap-4 flex-wrap">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-gray-100 rounded transition-colors"
-              title="Toggle Sidebar"
-            >
-              <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <SubAccountSwitcher />
             <button onClick={() => router.back()} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">
               ← Back
             </button>
@@ -274,7 +301,7 @@ export default function AttendanceSummary() {
 
         <main className="max-w-7xl mx-auto px-4 py-8 w-full">
           {/* ── Stat Cards ── */}
-          <div className="grid grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-4 gap-6 mb-8">
             <div className="bg-white rounded-xl shadow-md p-6 flex flex-col items-center">
               <p className="text-4xl font-bold text-blue-600">{logs.length}</p>
               <p className="text-sm text-gray-500 mt-1 font-medium">Employees Scanned</p>
@@ -287,6 +314,10 @@ export default function AttendanceSummary() {
               <p className="text-4xl font-bold text-orange-500">{checkedOutCount}</p>
               <p className="text-sm text-gray-500 mt-1 font-medium">Checked Out</p>
             </div>
+            <div className="bg-white rounded-xl shadow-md p-6 flex flex-col items-center">
+              <p className="text-4xl font-bold text-red-500">{missingEmployees.length}</p>
+              <p className="text-sm text-gray-500 mt-1 font-medium">Missing</p>
+            </div>
           </div>
 
           {/* ── Info Banner ── */}
@@ -296,11 +327,13 @@ export default function AttendanceSummary() {
                 d="M17 9V7a5 5 0 00-10 0v2a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2z" />
             </svg>
             <div className="text-sm text-indigo-700">
-              <strong>Thumbprint Scanner Active.</strong> Each employee's row updates automatically every 5 seconds.
-              &nbsp;1st scan = <strong>Check-In</strong>. All subsequent scans update <strong>Check-Out</strong> to the latest time
-              — so an accidental early tap is always corrected by the final departure scan.
-              {lastUpdated && (
-                <span className="ml-2 text-indigo-400">Last synced: {lastUpdated}</span>
+              <strong>Thumbprint Scanner Active.</strong> 1st scan = <strong>Check-In</strong>. All subsequent scans update <strong>Check-Out</strong> to the latest time.
+              Records clear automatically at midnight.
+              {lastUpdated && <span className="ml-2 text-indigo-400">Last synced: {lastUpdated}</span>}
+              {rawCount !== null && (
+                <span className="ml-2 text-indigo-400">
+                  · Scanner returned <strong>{rawCount}</strong> event{rawCount !== 1 ? "s" : ""}, <strong>{logs.length}</strong> matched
+                </span>
               )}
             </div>
           </div>
@@ -329,22 +362,14 @@ export default function AttendanceSummary() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scannerStatus === "idle" ? (
+                  {logs.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-4 py-16 text-center text-gray-400 text-sm">
-                        Connecting to thumbprint scanner…
-                      </td>
-                    </tr>
-                  ) : scannerStatus === "error" ? (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-16 text-center text-red-400 text-sm">
-                        Could not reach the scanner at 192.168.100.147. Check power and network.
-                      </td>
-                    </tr>
-                  ) : logs.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-16 text-center text-gray-400 text-sm">
-                        No scans recorded today yet. Waiting for first thumbprint…
+                        {scannerStatus === "idle"
+                          ? "Connecting to thumbprint scanner…"
+                          : scannerStatus === "error"
+                          ? "No data yet — scanner is currently offline."
+                          : "No scans recorded today yet. Waiting for first thumbprint…"}
                       </td>
                     </tr>
                   ) : (
@@ -412,6 +437,38 @@ export default function AttendanceSummary() {
             </div>
           </div>
 
+          {/* ── Missing Employees ── */}
+          {missingEmployees.length > 0 && (
+            <div className="mt-6 bg-white rounded-xl shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-red-100 flex items-center justify-between bg-red-50">
+                <h2 className="text-lg font-bold text-red-700">Missing Today</h2>
+                <span className="text-xs text-red-400">{missingEmployees.length} employee{missingEmployees.length !== 1 ? "s" : ""} not yet scanned</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-red-600 text-white">
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Employee</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Dept</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Position</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Scanner ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {missingEmployees.map((e, i) => (
+                      <tr key={`${e.scannerRef || e.name}-${i}`} className="border-b border-gray-100 hover:bg-red-50 transition-colors">
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{e.name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{e.dept}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{e.position}</td>
+                        <td className="px-4 py-3 text-xs font-mono text-gray-400">{e.scannerRef}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* ── Registered Employee Reference (collapsible) ── */}
           <details className="mt-6 bg-white rounded-xl shadow-md overflow-hidden">
             <summary className="px-6 py-4 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50 select-none">
@@ -421,25 +478,66 @@ export default function AttendanceSummary() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50">
-                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Scanner ID</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Computed ID</th>
                     <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
                     <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Dept</th>
                     <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Position</th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Matched Today</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {employees.map((e) => (
-                    <tr key={e.scannerRef} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="px-4 py-2 text-xs font-mono text-gray-600">{e.scannerRef}</td>
-                      <td className="px-4 py-2 text-sm text-gray-800 font-medium">{e.name}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{e.dept}</td>
-                      <td className="px-4 py-2 text-sm text-gray-600">{e.position}</td>
-                    </tr>
-                  ))}
+                  {employees.map((e, i) => {
+                    const matched = seenScannerIds.includes(e.scannerRef);
+                    return (
+                      <tr key={`${e.scannerRef || e.name}-${i}`} className={`border-t border-gray-100 hover:bg-gray-50 ${matched ? "bg-green-50" : ""}`}>
+                        <td className="px-4 py-2 text-xs font-mono text-gray-600">{e.scannerRef || <span className="text-red-400">⚠ no ID</span>}</td>
+                        <td className="px-4 py-2 text-sm text-gray-800 font-medium">{e.name}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{e.dept}</td>
+                        <td className="px-4 py-2 text-sm text-gray-600">{e.position}</td>
+                        <td className="px-4 py-2 text-xs">
+                          {matched
+                            ? <span className="text-green-600 font-semibold">✓ Scanned</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </details>
+
+          {/* ── Scanner Debug: unmatched IDs ── */}
+          {seenScannerIds.length > 0 && (
+            <details className="mt-4 bg-white rounded-xl shadow-md overflow-hidden">
+              <summary className="px-6 py-4 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50 select-none">
+                Scanner Raw IDs ({seenScannerIds.length}) — click to see what the device is sending
+              </summary>
+              <div className="px-6 py-4 border-t border-gray-100">
+                <p className="text-xs text-gray-400 mb-3">
+                  These are the exact <code>employeeNoString</code> values the scanner sent today.
+                  If any are missing from the table above, the computed ID in employees.csv doesn&apos;t match.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {seenScannerIds.map((id) => {
+                    const matched = employees.some((e) => e.scannerRef === id);
+                    return (
+                      <span
+                        key={id}
+                        className={`px-3 py-1 rounded-full text-xs font-mono font-semibold ${
+                          matched
+                            ? "bg-green-100 text-green-800"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {id} {matched ? "✓" : "⚠ no match"}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </details>
+          )}
         </main>
       </div>
     </div>
