@@ -8,7 +8,7 @@ function getPositionCode(role: string): string {
   if (r.includes('CEO')) return '11';
   if (r.includes('HOD')) return '22';
   if (r.includes('EXEC') || r.includes('BM') || r.startsWith('FT - COACH') || r.startsWith('PT - COACH') || r.includes('FT - COACH ') || r.includes('PT - COACH ')) return '33';
-  if (r.startsWith('FT - ') || r.startsWith('PT - ')) return '33'; // FT/PT Coaches
+  if (r.startsWith('FT - ') || r.startsWith('PT - ')) return '33';
   if (r.includes('INT')) return '44';
   return '33';
 }
@@ -29,8 +29,6 @@ function getDeptCode(branch: string): string {
 }
 
 function buildEmployeeId(role: string, branch: string, seq: number): string {
-  // Format: [pos2][pos1.1][branch_code][pos3]
-  // HQ departments use branch code "00"; physical branches will use their own codes later
   return `${getPositionCode(role)}${getDeptCode(branch)}00${String(seq).padStart(2, '0')}`;
 }
 
@@ -162,7 +160,7 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { message: 'Employee registered successfully', data: toEmployee(newStaff as unknown as Record<string, unknown>) },
+      { message: 'Employee registered successfully', data: toEmployee(newStaff as Record<string, unknown>) },
       { status: 201 }
     );
   } catch (error) {
@@ -187,14 +185,12 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
     }
 
-    // Recalculate employee ID if branch or role changed
     let recalculatedEmployeeId: string | undefined;
     if (branch !== undefined || role !== undefined) {
       const current = await prisma.branchStaff.findUnique({ where: { id: parseInt(id) } });
       if (current) {
         const newBranch = branch ?? current.branch ?? 'HQ';
         const newRole = role ?? current.role ?? '';
-        // Use DB primary key as the canonical sequence number (avoids parsing issues with old IDs)
         recalculatedEmployeeId = buildEmployeeId(newRole, newBranch, current.id);
       }
     }
@@ -235,7 +231,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({
       message: 'Employee updated successfully',
-      data: toEmployee(updated as unknown as Record<string, unknown>),
+      data: toEmployee(updated as Record<string, unknown>),
     });
   } catch (error) {
     console.error('Error updating employee:', error);
@@ -259,7 +255,7 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({
       message: 'Employee deleted successfully',
-      data: toEmployee(deleted as unknown as Record<string, unknown>),
+      data: toEmployee(deleted as Record<string, unknown>),
     });
   } catch (error) {
     console.error('Error deleting employee:', error);

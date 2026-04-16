@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { format, parseISO, addDays, startOfWeek } from "date-fns";
+import { format, parseISO, addDays } from "date-fns";
 import { useSession } from "next-auth/react";
 import Sidebar from "@/app/components/Sidebar";
 
@@ -56,16 +56,16 @@ const SummaryTable = ({ title, data, theme = "blue" }: { title: string, data: an
   };
 
   return (
-    <div className={`overflow-hidden rounded-xl border ${theme === "orange" ? "border-orange-200" : "border-slate-200"} bg-white shadow-md w-full flex-1`}>
-      <header className={`border-b px-2 py-1.5 text-center ${theme === "orange" ? "bg-orange-600 text-white" : "bg-[#2D3F50] text-white"}`}>
-        <h3 className="text-[10px] font-black uppercase tracking-widest">{title}</h3>
+    <div className={`overflow-hidden rounded-xl border ${theme === "orange" ? "border-orange-200" : "border-slate-200"} bg-white shadow-md w-full`}>
+      <header className={`border-b px-4 py-2.5 text-center ${theme === "orange" ? "bg-orange-600 text-white" : "bg-[#2D3F50] text-white"}`}>
+        <h3 className="text-sm font-black uppercase tracking-widest">{title}</h3>
       </header>
       <div className="overflow-x-auto">
-        <table className="w-full text-[8px] border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead className="bg-slate-100 text-slate-600 border-b">
             <tr>
-              <th className="p-1.5 border-r text-left w-6">No.</th>
-              <th className="p-1.5 border-r text-left">Name</th>
+              <th className="p-2 border-r text-left w-8">No.</th>
+              <th className="p-2 border-r text-left">Name</th>
               <th className="p-2 border-r text-center">Coach</th>
               <th className="p-2 border-r text-center">Exec</th>
               <th className="p-2 text-center">Total</th>
@@ -78,17 +78,17 @@ const SummaryTable = ({ title, data, theme = "blue" }: { title: string, data: an
               const t = formatTime(row.total);
               return (
                 <tr key={row.name} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-1.5 border-r text-center text-slate-400 font-bold">{index + 1}</td>
-                  <td className="p-1.5 border-r font-black text-slate-700 truncate">{getShortName(row.name)}</td>
-                  <td className="p-1.5 border-r text-center">
-                    <span className="bg-slate-50 border rounded px-1 py-0.5 text-slate-600 font-bold">{c.h}h {c.m}m</span>
+                  <td className="p-2 border-r text-center text-slate-400 font-bold">{index + 1}</td>
+                  <td className="p-2 border-r font-black text-slate-700">{row.name}</td>
+                  <td className="p-2 border-r text-center">
+                    <span className="bg-slate-50 border rounded px-2 py-0.5 text-slate-600 font-bold">{c.h}h {c.m}m</span>
                   </td>
-                  <td className="p-1.5 border-r text-center">
-                    <span className="bg-slate-50 border rounded px-1 py-0.5 text-slate-600 font-bold">{e.h}h {e.m}m</span>
+                  <td className="p-2 border-r text-center">
+                    <span className="bg-slate-50 border rounded px-2 py-0.5 text-slate-600 font-bold">{e.h}h {e.m}m</span>
                   </td>
-                  <td className="p-1.5 text-center">
-                    <span className={`rounded-lg px-2 py-0.5 font-black border ${theme === "orange" ? "bg-orange-50 border-orange-200 text-orange-600" : "bg-blue-50 border-blue-200 text-blue-600"}`}>
-                      {t.h}:{t.m}
+                  <td className="p-2 text-center">
+                    <span className={`rounded-lg px-3 py-0.5 font-black border text-sm ${theme === "orange" ? "bg-orange-50 border-orange-200 text-orange-600" : "bg-blue-50 border-blue-200 text-blue-600"}`}>
+                      {t.h}h {t.m}m
                     </span>
                   </td>
                 </tr>
@@ -126,9 +126,8 @@ export default function UpdateSchedulePage() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [filterBranch, setFilterBranch] = useState<string>("");
-  const [filterYear, setFilterYear] = useState<string>("");
-  const [filterMonth, setFilterMonth] = useState<string>("");
-  const [filterQuick, setFilterQuick] = useState<string>(""); // "this-week" | "last-week"
+  const [drillYear, setDrillYear] = useState<string | null>(null);
+  const [drillMonth, setDrillMonth] = useState<number | null>(null);
 
   const fetchStaff = async () => {
     const res = await fetch('/api/branch-staff');
@@ -169,19 +168,12 @@ export default function UpdateSchedulePage() {
   const userBranch = (session?.user as any)?.branchName;
 
   const filteredHistory = useMemo(() => {
-    const today = new Date();
-    const thisMonday = format(startOfWeek(today, { weekStartsOn: 1 }), "yyyy-MM-dd");
-    const lastMonday = format(startOfWeek(addDays(today, -7), { weekStartsOn: 1 }), "yyyy-MM-dd");
     return history.filter((record: any) => {
       if (userRole === "BRANCH_MANAGER" && record.branch !== userBranch) return false;
       if (filterBranch && record.branch !== filterBranch) return false;
-      if (!filterQuick && filterYear && format(parseISO(record.startDate), "yyyy") !== filterYear) return false;
-      if (!filterQuick && filterMonth && format(parseISO(record.startDate), "yyyy-MM") !== `${filterYear || format(today, "yyyy")}-${filterMonth}`) return false;
-      if (filterQuick === "this-week" && record.startDate !== thisMonday) return false;
-      if (filterQuick === "last-week" && record.startDate !== lastMonday) return false;
       return true;
     });
-  }, [history, filterBranch, filterYear, filterMonth, filterQuick, userRole, userBranch]);
+  }, [history, filterBranch, userRole, userBranch]);
 
   // Compute which staff are already scheduled at other branches for the same week
   useEffect(() => {
@@ -226,13 +218,19 @@ export default function UpdateSchedulePage() {
   };
 
   const sanitizeSelections = (selections: Record<string, any>, branch?: string) => {
-    // Build case-insensitive lookup map from all known staff
     const allKnownStaff = [...SHARED_EMPLOYEES, ...(branch ? (branchStaffData[branch] || []) : Object.values(branchStaffData).flat())];
     const nameLookup = new Map(allKnownStaff.map(n => [n.toLowerCase(), n]));
     return Object.fromEntries(
       Object.entries(selections || {})
         .filter(([, v]) => v && v !== "None")
-        .map(([k, v]) => [k, nameLookup.get((v as string).toLowerCase()) ?? v])
+        .map(([k, v]) => {
+          const storedLower = (v as string).toLowerCase();
+          const exactMatch = nameLookup.get(storedLower);
+          if (exactMatch) return [k, exactMatch];
+          // Fuzzy: handles "Thiru" → "Thiru (Training)" when base name matches
+          const fuzzyMatch = allKnownStaff.find(n => n.toLowerCase().startsWith(storedLower + ' '));
+          return [k, fuzzyMatch ?? v];
+        })
     );
   };
 
@@ -300,7 +298,7 @@ export default function UpdateSchedulePage() {
     if (!selectedRecord) return [];
     const rawData = isOriginalData ? (selectedRecord.originalSelections || selectedRecord.selections) : selections;
     if (!rawData) return [];
-    const dataToCalculate = sanitizeSelections(rawData);
+    const dataToCalculate = sanitizeSelections(rawData, selectedRecord.branch);
 
     const managerNames = new Set(Object.values(branchManagerData).flat());
     const allBranchStaff = (branchStaffData[selectedRecord.branch] || []).filter(n => !managerNames.has(n));
@@ -371,7 +369,7 @@ export default function UpdateSchedulePage() {
 
   if (selectedRecord) {
     
-    const originalData = selectedRecord.originalSelections || selectedRecord.selections || {};
+    const originalData = sanitizeSelections(selectedRecord.originalSelections || selectedRecord.selections || {}, selectedRecord.branch);
     const originalNotes = selectedRecord.notes || selectedRecord.originalNotes || {};
 
     return (
@@ -710,7 +708,7 @@ export default function UpdateSchedulePage() {
 
               <div className="mt-6 bg-white p-4 rounded-xl border border-slate-200 shadow-md">
                 <h2 className="text-sm font-black text-center uppercase tracking-widest text-slate-800 mb-4">📊 Staff Hours Comparison</h2>
-                <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex flex-col gap-4">
                     <SummaryTable title="ORIGINAL" data={calculateHoursForData({}, true)} theme="blue" />
                     <SummaryTable title="ADJUSTED" data={calculateHoursForData(updatedSelections, false)} theme="orange" />
                 </div>
@@ -806,55 +804,16 @@ export default function UpdateSchedulePage() {
                 </h1>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-3 mb-6">
-                <div className="flex flex-wrap gap-3">
-                  {userRole !== "BRANCH_MANAGER" && (
-                    <div className="flex-1 min-w-[180px]">
-                      <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Branch</label>
-                      <select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)}
-                        className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-blue-500 transition-colors">
-                        <option value="">All Branches</option>
-                        {ALL_BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
-                      </select>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-[120px]">
-                    <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Year</label>
-                    <select value={filterYear} onChange={(e) => { setFilterYear(e.target.value); setFilterQuick(""); }}
-                      className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-blue-500 transition-colors">
-                      <option value="">All Years</option>
-                      {Array.from(new Set(history.map(r => format(parseISO(r.startDate), "yyyy")))).sort((a,b) => parseInt(b)-parseInt(a)).map(y => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex-1 min-w-[140px]">
-                    <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Month</label>
-                    <select value={filterMonth} onChange={(e) => { setFilterMonth(e.target.value); setFilterQuick(""); }}
-                      className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-blue-500 transition-colors">
-                      <option value="">All Months</option>
-                      {["01","02","03","04","05","06","07","08","09","10","11","12"].map((m, i) => (
-                        <option key={m} value={m}>{["January","February","March","April","May","June","July","August","September","October","November","December"][i]}</option>
-                      ))}
-                    </select>
-                  </div>
+              {userRole !== "BRANCH_MANAGER" && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6">
+                  <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Branch</label>
+                  <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setDrillYear(null); setDrillMonth(null); }}
+                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 font-bold text-slate-700 outline-none focus:border-blue-500 transition-colors">
+                    <option value="">All Branches</option>
+                    {ALL_BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <span className="text-[10px] font-black uppercase text-slate-400">Quick:</span>
-                  {["this-week","last-week"].map(q => (
-                    <button key={q} onClick={() => setFilterQuick(filterQuick === q ? "" : q)}
-                      className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${filterQuick === q ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
-                      {q === "this-week" ? "This Week" : "Last Week"}
-                    </button>
-                  ))}
-                  {(filterBranch || filterYear || filterMonth || filterQuick) && (
-                    <button onClick={() => { setFilterBranch(""); setFilterYear(""); setFilterMonth(""); setFilterQuick(""); }}
-                      className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wide bg-red-50 text-red-600 hover:bg-red-100 transition-colors ml-auto">
-                      Clear All
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto w-full mx-auto px-4 md:px-6 pb-12">
@@ -862,44 +821,112 @@ export default function UpdateSchedulePage() {
                 <div className="flex justify-center items-center h-40">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
                 </div>
-              ) : !filterBranch && !filterYear && !filterMonth && !filterQuick ? (
-                <div className="flex flex-col items-center justify-center h-[50vh] gap-4 text-center">
-                  <div className="text-6xl">🔍</div>
-                  <p className="text-slate-700 font-black text-xl uppercase tracking-widest">Select a filter to view records</p>
-                  <p className="text-slate-400 font-bold text-sm">Use Branch, Year, Month or the quick buttons above</p>
-                </div>
-              ) : filteredHistory.length === 0 ? (
-                <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-300 text-center shadow-sm">
-                  <p className="text-slate-500 font-bold text-lg uppercase tracking-widest">No schedules found matching your filters.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs font-black uppercase text-slate-400 mb-3">{filteredHistory.length} record{filteredHistory.length !== 1 ? "s" : ""} found</p>
-                  {filteredHistory
-                    .slice()
-                    .sort((a: any, b: any) => b.startDate.localeCompare(a.startDate))
-                    .map((record: any) => (
-                      <button key={record.id} onClick={() => handleSelectRecord(record)}
-                        className="w-full text-left bg-white hover:bg-orange-50 border border-slate-200 hover:border-orange-300 rounded-2xl px-6 py-4 transition-all shadow-sm flex items-center justify-between gap-4 group">
-                        <div className="flex items-center gap-4">
-                          <div className="w-2 h-10 rounded-full bg-orange-400 group-hover:bg-orange-500 transition-colors shrink-0"></div>
-                          <div>
-                            <div className="font-black text-slate-800 uppercase tracking-wide">{record.branch}</div>
-                            <div className="text-sm text-slate-500 font-bold mt-0.5">
-                              {format(parseISO(record.startDate), "dd MMM yyyy")} – {format(parseISO(record.endDate), "dd MMM yyyy")}
+              ) : (() => {
+                const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+                const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                const lastDay = (drillYear && drillMonth !== null)
+                  ? new Date(parseInt(drillYear), drillMonth + 1, 0).getDate()
+                  : 31;
+                const WEEK_RANGES = [
+                  { label: "01 – 07", start: 1, end: 7 },
+                  { label: "08 – 14", start: 8, end: 14 },
+                  { label: "15 – 21", start: 15, end: 21 },
+                  { label: "22 – 28", start: 22, end: 28 },
+                  ...(lastDay >= 29 ? [{ label: `29 – ${String(lastDay).padStart(2, "0")}`, start: 29, end: lastDay }] : []),
+                ];
+                const byYear: Record<string, any[]> = {};
+                filteredHistory.forEach((r: any) => {
+                  const y = format(parseISO(r.startDate), "yyyy");
+                  if (!byYear[y]) byYear[y] = [];
+                  byYear[y].push(r);
+                });
+
+                if (drillYear !== null && drillMonth !== null) {
+                  const monthRecs = filteredHistory.filter((r: any) =>
+                    format(parseISO(r.startDate), "yyyy") === drillYear &&
+                    parseInt(format(parseISO(r.startDate), "M")) - 1 === drillMonth
+                  );
+                  return (
+                    <div>
+                      <div className="flex items-center gap-3 mb-5">
+                        <button onClick={() => setDrillMonth(null)} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-colors shadow-sm">← Back</button>
+                        <h2 className="text-lg font-black uppercase tracking-widest text-slate-800">{drillYear} <span className="text-slate-400">›</span> {MONTH_NAMES[drillMonth]}</h2>
+                      </div>
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        {WEEK_RANGES.map((week, wi) => {
+                          const weekRecs = monthRecs.filter((r: any) => {
+                            const d = parseInt(format(parseISO(r.startDate), "d"));
+                            return d >= week.start && d <= week.end;
+                          });
+                          return (
+                            <div key={week.label} className={`flex gap-4 items-start px-5 py-4 ${wi < WEEK_RANGES.length - 1 ? "border-b border-slate-100" : ""}`}>
+                              <div className="w-20 shrink-0 text-xs font-black text-slate-400 pt-2">{week.label}</div>
+                              <div className="flex flex-wrap gap-2 flex-1">
+                                {weekRecs.length > 0 ? weekRecs.map((record: any) => (
+                                  <button key={record.id} onClick={() => handleSelectRecord(record)}
+                                    className="text-left bg-orange-50 hover:bg-orange-100 border border-orange-200 hover:border-orange-300 rounded-xl px-4 py-3 transition-colors min-w-[160px]">
+                                    <div className="font-black text-sm text-orange-800 uppercase tracking-wide">{record.branch}</div>
+                                    <div className="text-xs text-orange-500 font-bold mt-0.5">
+                                      {format(parseISO(record.startDate), "dd MMM")} – {format(parseISO(record.endDate), "dd MMM")}
+                                    </div>
+                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full mt-1 inline-block ${record.status === "Updated" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                                      {record.status || "Finalized"}
+                                    </span>
+                                  </button>
+                                )) : <span className="text-slate-200 text-sm font-bold pt-1">—</span>}
+                              </div>
                             </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (Object.keys(byYear).length === 0) {
+                  return (
+                    <div className="bg-white p-12 rounded-3xl border-2 border-dashed border-slate-300 text-center shadow-sm">
+                      <p className="text-slate-500 font-bold text-lg uppercase tracking-widest">No schedules found.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {Object.keys(byYear).sort((a, b) => parseInt(b) - parseInt(a)).map(year => {
+                      const recs = byYear[year];
+                      const monthCounts: Record<number, number> = {};
+                      recs.forEach((r: any) => {
+                        const mi = parseInt(format(parseISO(r.startDate), "M")) - 1;
+                        monthCounts[mi] = (monthCounts[mi] || 0) + 1;
+                      });
+                      return (
+                        <div key={year} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="bg-[#2D3F50] px-6 py-3">
+                            <h2 className="text-white font-black text-xl uppercase tracking-widest">{year}</h2>
+                          </div>
+                          <div className="p-4 grid grid-cols-6 gap-2">
+                            {[0,1,2,3,4,5,6,7,8,9,10,11].map(mi => {
+                              const count = monthCounts[mi] || 0;
+                              const hasRecords = count > 0;
+                              return (
+                                <button key={mi}
+                                  onClick={() => { if (hasRecords) { setDrillYear(year); setDrillMonth(mi); } }}
+                                  disabled={!hasRecords}
+                                  className={`rounded-xl py-3 px-2 text-center transition-colors ${hasRecords ? "bg-orange-500 hover:bg-orange-600 text-white cursor-pointer shadow-sm" : "bg-slate-100 text-slate-300 cursor-not-allowed"}`}
+                                >
+                                  <div className="font-black text-sm">{MONTH_SHORT[mi]}</div>
+                                  {hasRecords && <div className="text-[10px] mt-0.5 opacity-80">{count}</div>}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full tracking-widest ${record.status === "Updated" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
-                            {record.status || "Finalized"}
-                          </span>
-                          <span className="text-slate-300 group-hover:text-orange-400 font-black text-lg transition-colors">→</span>
-                        </div>
-                      </button>
-                    ))}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
         </main>
       </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { request } from 'urllib';
 import { requireSession } from '@/lib/auth';
+import { SCANNERS } from '@/lib/scanners';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,20 +9,18 @@ export async function GET() {
   const { error } = await requireSession();
   if (error) return error;
 
-  const ip   = process.env.SCANNER_IP;
-  const user = process.env.SCANNER_USER;
-  const pass = process.env.SCANNER_PASS;
+  const scanner = SCANNERS[0];
 
-  if (!ip || !user || !pass) {
+  if (!scanner.ip || !scanner.user || !scanner.pass) {
     return NextResponse.json(
-      { error: 'Scanner not configured — set SCANNER_IP, SCANNER_USER, SCANNER_PASS in .env' },
+      { error: 'Scanner not configured — check SCANNER_1_IP, SCANNER_1_USER, SCANNER_1_PASS in .env' },
       { status: 500 }
     );
   }
 
   try {
-    const url  = `http://${ip}/ISAPI/AccessControl/UserInfo/Search?format=json`;
-    const auth = `${user}:${pass}`;
+    const url  = `http://${scanner.ip}/ISAPI/AccessControl/UserInfo/Search?format=json`;
+    const auth = `${scanner.user}:${scanner.pass}`;
     const allUsers: { employeeNo: string; name: string }[] = [];
     const seen = new Set<string>();
     let position = 0;
