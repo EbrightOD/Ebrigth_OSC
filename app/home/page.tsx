@@ -36,28 +36,16 @@ export default function HomePage() {
       {/* header */}
       <header className="bg-white border-b border-gray-200">
         <div className="flex justify-between items-center px-6 py-4">
-          <div className="flex items-center gap-3.5">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(p => !p)}
-              aria-label="Toggle sidebar"
-              className="w-7 h-7 flex flex-col justify-center gap-[4px] cursor-pointer"
-            >
-              <span className="h-[2px] bg-gray-900 rounded-sm"></span>
-              <span className="h-[2px] bg-gray-900 rounded-sm"></span>
-              <span className="h-[2px] bg-gray-900 rounded-sm"></span>
-            </button>
-            <div className="flex items-center gap-2.5">
-              <div className="w-[26px] h-[26px] bg-brand-red rounded-md flex items-center justify-center text-white font-extrabold text-[13px]">
-                E
+          <div className="flex items-center gap-2.5">
+            <div className="w-[26px] h-[26px] bg-brand-red rounded-md flex items-center justify-center text-white font-extrabold text-[13px]">
+              E
+            </div>
+            <div>
+              <div className="font-bold text-gray-900 text-[15px] tracking-tight leading-none">
+                Ebright Portal
               </div>
-              <div>
-                <div className="font-bold text-gray-900 text-[15px] tracking-tight leading-none">
-                  Ebright Portal
-                </div>
-                <div className="text-gray-500 text-[11px] mt-0.5 leading-none">
-                  Dashboard
-                </div>
+              <div className="text-gray-500 text-[11px] mt-0.5 leading-none">
+                Dashboard
               </div>
             </div>
           </div>
