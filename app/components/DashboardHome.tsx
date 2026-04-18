@@ -91,18 +91,27 @@ const dashboards: DashboardCard[] = [
   },
 ];
 
-function getDisplayName(email?: string): string {
+function getDisplayName(userName?: string, email?: string): string {
+  if (userName && userName.trim()) return userName.trim();
   if (!email) return "there";
   const local = email.split("@")[0];
   if (!local) return "there";
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-export default function DashboardHome({ userRole, userEmail }: { userRole?: string; userEmail?: string }) {
+export default function DashboardHome({
+  userRole,
+  userEmail,
+  userName,
+}: {
+  userRole?: string;
+  userEmail?: string;
+  userName?: string;
+}) {
   const isBranchManager = userRole === "BRANCH_MANAGER";
   const accessibleCount = isBranchManager ? 1 : dashboards.length;
   const totalCount = dashboards.length;
-  const displayName = getDisplayName(userEmail);
+  const displayName = getDisplayName(userName, userEmail);
   const [greeting, setGreeting] = useState("Welcome");
   useEffect(() => {
     const h = new Date().getHours();
