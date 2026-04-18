@@ -42,7 +42,7 @@ export default function UserHeader({
         onClick={() => setDropdownOpen(!dropdownOpen)}
         className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
       >
-        <div className="w-7 h-7 bg-[#ED1C24] rounded-full flex items-center justify-center text-white font-bold text-xs">
+        <div className="w-7 h-7 bg-brand-red rounded-full flex items-center justify-center text-white font-bold text-xs">
           {userName.split(" ").map((n) => n[0]).join("")}
         </div>
         <div className="text-left hidden sm:block">
