@@ -73,7 +73,7 @@ export default function HomePage() {
         <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} showInternalToggle={false} />
 
         <main className="flex-1 overflow-y-auto">
-          <DashboardHome userRole={userRole} userEmail={userEmail} />
+          <DashboardHome userRole={userRole} userEmail={userEmail} userName={branchName} />
         </main>
       </div>
     </div>
