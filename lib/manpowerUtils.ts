@@ -1,4 +1,4 @@
-export const SHARED_EMPLOYEES = ["Iqbal", "Ying Chen", "Adam", "Faiq", "Salman"];
+export const SHARED_EMPLOYEES: string[] = [];
 
 export const ALL_BRANCHES = [
   "Subang Taipan", "Setia Alam", "Shah Alam", "Putrajaya", "Ampang", 
@@ -11,18 +11,51 @@ export const ALL_BRANCHES = [
 export const DAYS = ["Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 export const WEEKDAY_DAYS = ["Wednesday", "Thursday", "Friday"] as const;
 
-export const EMPLOYEE_COLORS: Record<string, string> = {
-  "Iqbal": "bg-blue-400 text-white border-blue-500",
-  "Ying Chen": "bg-pink-300 text-white border-pink-400",
-  "Adam": "bg-purple-400 text-white border-purple-500",
-  "Faiq": "bg-indigo-400 text-white border-indigo-500",
-  "Salman": "bg-teal-400 text-white border-teal-500",
-  "Sofia": "bg-orange-400 text-white border-orange-500",
-  "Dina": "bg-orange-400 text-white border-orange-500",
-  "Didi": "bg-orange-400 text-white border-orange-500",
-  "Mai": "bg-orange-400 text-white border-orange-500",
+export const BRANCH_WORKING_DAYS: Record<string, string[]> = {
+  "Ampang": ["Thursday", "Friday", "Saturday", "Sunday"],
+  "Bandar Seri Putra": ["Thursday", "Friday", "Saturday", "Sunday"],
+  "Klang": ["Thursday", "Friday", "Saturday", "Sunday"],
 };
 
+export function getWorkingDaysForBranch(branchName: string): string[] {
+  return BRANCH_WORKING_DAYS[branchName] ?? [...DAYS];
+}
+
+// --- COLOR LOGIC ---
+const COLOR_PALETTE = [
+  "bg-red-600 text-white",
+  "bg-orange-500 text-white",
+  "bg-amber-500 text-black",
+  "bg-green-600 text-white",
+  "bg-emerald-500 text-white",
+  "bg-teal-600 text-white",
+  "bg-cyan-600 text-white",
+  "bg-sky-600 text-white",
+  "bg-blue-600 text-white",
+  "bg-indigo-600 text-white",
+  "bg-violet-600 text-white",
+  "bg-purple-600 text-white",
+  "bg-fuchsia-600 text-white",
+  "bg-pink-600 text-white",
+  "bg-rose-600 text-white",
+];
+
+function hashName(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    // A slightly stronger hash to spread colors better
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash);
+}
+
+export function getEmployeeColor(name: string): string {
+  if (!name || name === "None" || name === "-- Select --") return "bg-white text-slate-400 border border-slate-200";
+  const colorIndex = hashName(name) % COLOR_PALETTE.length;
+  return COLOR_PALETTE[colorIndex];
+}
+
+// --- TABLE CONFIGURATION ---
 export const COLUMNS = [
   { id: "coach1", label: "Coach 1", type: "coach" as const },
   { id: "coach2", label: "Coach 2", type: "coach" as const },
@@ -39,11 +72,26 @@ export const COLUMNS = [
 const DEFAULT_WEEKDAY_TIME_SLOTS = ["06.00PM - 07.15PM", "07:15PM - 08:30PM", "08.30PM - 09:45PM"] as const;
 const DEFAULT_WEEKEND_TIME_SLOTS = ["09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM"] as const;
 const TAIPAN_WEEKDAY_TIME_SLOTS = ["4:15 PM", "04.30PM - 05.45PM", "06.00PM - 07.15PM", "07:15PM - 08:30PM", "08.30PM - 09:45PM", "10:00 PM"] as const;
+const AMPANG_WEEKDAY_TIME_SLOTS = ["5:00 PM - 6:00 PM", "06.00PM - 07.15PM", "07:15PM - 08:30PM", "08.30PM - 09:45PM", "9:45 PM - 10:00 PM"] as const;
+const AMPANG_WEEKEND_TIME_SLOTS = ["8:45 AM - 9:15 AM", "09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM", "6:45 PM - 7:15 PM"] as const;
 
 export const BRANCH_SLOTS_CONFIG: Record<string, { weekday: readonly string[], weekend: readonly string[] }> = {
   "Subang Taipan": { weekday: TAIPAN_WEEKDAY_TIME_SLOTS, weekend: DEFAULT_WEEKEND_TIME_SLOTS },
+  "Ampang": { weekday: AMPANG_WEEKDAY_TIME_SLOTS, weekend: AMPANG_WEEKEND_TIME_SLOTS },
+  "Bandar Seri Putra": { weekday: AMPANG_WEEKDAY_TIME_SLOTS, weekend: AMPANG_WEEKEND_TIME_SLOTS },
+  "Klang": { weekday: AMPANG_WEEKDAY_TIME_SLOTS, weekend: AMPANG_WEEKEND_TIME_SLOTS },
   "default": { weekday: DEFAULT_WEEKDAY_TIME_SLOTS, weekend: DEFAULT_WEEKEND_TIME_SLOTS }
 };
+
+const OPENING_CLOSING_SLOTS: Record<string, string[]> = {
+  "Ampang": ["5:00 PM - 6:00 PM", "9:45 PM - 10:00 PM", "8:45 AM - 9:15 AM", "6:45 PM - 7:15 PM"],
+  "Bandar Seri Putra": ["5:00 PM - 6:00 PM", "9:45 PM - 10:00 PM", "8:45 AM - 9:15 AM", "6:45 PM - 7:15 PM"],
+  "Klang": ["5:00 PM - 6:00 PM", "9:45 PM - 10:00 PM", "8:45 AM - 9:15 AM", "6:45 PM - 7:15 PM"],
+};
+
+export function isOpeningClosingSlot(slot: string, branchName: string): boolean {
+  return (OPENING_CLOSING_SLOTS[branchName] ?? []).includes(slot);
+}
 
 export function getTimeSlotsForDay(day: string, branchName: string): readonly string[] {
   const config = BRANCH_SLOTS_CONFIG[branchName] || BRANCH_SLOTS_CONFIG["default"];
@@ -53,6 +101,36 @@ export function getTimeSlotsForDay(day: string, branchName: string): readonly st
 export function isAdminSlot(slot: string, branchName: string) {
   if (branchName === "Subang Taipan") return ["4:15 PM", "10:00 PM"].includes(slot);
   return ["5:00 PM", "10:00 PM", "08:45 AM – 09:15 AM", "11:45 AM – 12:00 PM", "2:30 PM – 2:45 PM", "5:15 PM – 5:30 PM", "6:45 PM – 7:15 PM"].includes(slot);
+}
+
+const MANAGER_ON_DUTY_SLOTS: Record<string, { weekday: string[], weekend: string[] }> = {
+  "Ampang": {
+    weekday: ["06.00PM - 07.15PM", "07:15PM - 08:30PM"],
+    weekend: ["09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM"],
+  },
+  "Bandar Seri Putra": {
+    weekday: ["06.00PM - 07.15PM", "07:15PM - 08:30PM"],
+    weekend: ["09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM"],
+  },
+  "Klang": {
+    weekday: ["06.00PM - 07.15PM", "07:15PM - 08:30PM"],
+    weekend: ["09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM"],
+  },
+  "Subang Taipan": {
+    weekday: ["06.00PM - 07.15PM", "07:15PM - 08:30PM"],
+    weekend: ["09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM"],
+  },
+  "default": {
+    weekday: ["06.00PM - 07.15PM", "07:15PM - 08:30PM"],
+    weekend: ["09:15 AM – 10:30 AM", "10:30 AM – 11:45 AM", "12:00 PM – 1:15 PM", "1:15 PM – 2:30 PM", "2:45 PM – 4:00 PM", "4:00 PM – 5:15 PM", "5:30 PM – 6:45 PM"],
+  },
+};
+
+export function isManagerOnDutySlot(slot: string, branchName: string, day: string): boolean {
+  const isWeekend = !WEEKDAY_DAYS.includes(day as any);
+  const config = MANAGER_ON_DUTY_SLOTS[branchName] || MANAGER_ON_DUTY_SLOTS["default"];
+  const allowedSlots = isWeekend ? config.weekend : config.weekday;
+  return allowedSlots.includes(slot);
 }
 
 export const SELECT_ARROW_WHITE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='white' d='M6 8L1 3h10z'/%3E%3C/svg%3E";

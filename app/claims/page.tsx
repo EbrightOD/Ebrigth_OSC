@@ -130,7 +130,7 @@ const CLAIM_TYPES = [
 ];
 
 export default function ClaimsPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<typeof CLAIM_TYPES[0] | null>(null);
 
   return (
@@ -143,12 +143,12 @@ export default function ClaimsPage() {
             <h1 className="text-4xl font-black tracking-tight uppercase">Claims <span className="text-blue-500">Hub</span></h1>
             <p className="text-slate-400 font-medium text-sm tracking-widest mt-1">EBRIGHT FINANCE PORTAL</p>
           </div>
-          <UserHeader userName="Admin User" userRole="SUPER_ADMIN" userEmail="admin@ebright.com" />
+          <UserHeader userName="Admin User" userEmail="admin@ebright.com" />
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar sidebarOpen={sidebarOpen} onCollapse={() => setSidebarOpen(false)} />
+        <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
 
         <main className="flex-1 overflow-y-auto px-12 py-12 bg-[#F8FAFC]">
           <div className="mx-auto w-full max-w-6xl">

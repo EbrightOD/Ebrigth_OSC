@@ -29,7 +29,7 @@ export default function SMSPage() {
             <h1 className="text-3xl font-bold">SMS (School Management)</h1>
             <p className="text-indigo-100 mt-1">Student & Academic Management</p>
           </div>
-          <UserHeader userName="Admin User" userRole="SUPER_ADMIN" userEmail="admin@ebright.com" />
+          <UserHeader userName="Admin User" userEmail="admin@ebright.com" />
         </div>
       </header>
 
