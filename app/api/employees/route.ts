@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireSession } from '@/lib/auth';
 
 // Position level code (pos2)
 function getPositionCode(role: string): string {
@@ -7,7 +8,7 @@ function getPositionCode(role: string): string {
   if (r.includes('CEO')) return '11';
   if (r.includes('HOD')) return '22';
   if (r.includes('EXEC') || r.includes('BM') || r.startsWith('FT - COACH') || r.startsWith('PT - COACH') || r.includes('FT - COACH ') || r.includes('PT - COACH ')) return '33';
-  if (r.startsWith('FT - ') || r.startsWith('PT - ')) return '33'; // FT/PT Coaches
+  if (r.startsWith('FT - ') || r.startsWith('PT - ')) return '33';
   if (r.includes('INT')) return '44';
   return '33';
 }
@@ -28,8 +29,6 @@ function getDeptCode(branch: string): string {
 }
 
 function buildEmployeeId(role: string, branch: string, seq: number): string {
-  // Format: [pos2][pos1.1][branch_code][pos3]
-  // HQ departments use branch code "00"; physical branches will use their own codes later
   return `${getPositionCode(role)}${getDeptCode(branch)}00${String(seq).padStart(2, '0')}`;
 }
 
@@ -72,6 +71,8 @@ function toEmployee(s: Record<string, unknown>) {
 }
 
 export async function GET(request: Request) {
+  const { error } = await requireSession();
+  if (error) return error;
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search')?.toLowerCase() || '';
   const branch = searchParams.get('branch') || '';
@@ -89,7 +90,7 @@ export async function GET(request: Request) {
 
   if (search) {
     results = results.filter(
-      (e) =>
+      e =>
         e.fullName.toLowerCase().includes(search) ||
         e.email.toLowerCase().includes(search) ||
         e.employeeId.toLowerCase().includes(search)
@@ -100,6 +101,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const { error } = await requireSession();
+  if (error) return error;
+
   try {
     const body = await request.json();
     const { fullName, email, phone, branch, role, gender, nickName, nric, dob,
@@ -166,6 +170,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const { error } = await requireSession();
+  if (error) return error;
+
   try {
     const body = await request.json();
     const { id, fullName, email, phone, branch, role, gender, nickName, nric, dob,
@@ -178,14 +185,12 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
     }
 
-    // Recalculate employee ID if branch or role changed
     let recalculatedEmployeeId: string | undefined;
     if (branch !== undefined || role !== undefined) {
       const current = await prisma.branchStaff.findUnique({ where: { id: parseInt(id) } });
       if (current) {
         const newBranch = branch ?? current.branch ?? 'HQ';
         const newRole = role ?? current.role ?? '';
-        // Use DB primary key as the canonical sequence number (avoids parsing issues with old IDs)
         recalculatedEmployeeId = buildEmployeeId(newRole, newBranch, current.id);
       }
     }
@@ -235,6 +240,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const { error } = await requireSession();
+  if (error) return error;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

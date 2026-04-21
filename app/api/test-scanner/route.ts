@@ -1,53 +1,10 @@
 import { NextResponse } from 'next/server';
 import { request } from 'urllib';
 import { sendClockInEmail, sendClockOutEmail } from '@/lib/mailer';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { prisma } from '@/lib/prisma';
+import { SCANNERS } from '@/lib/scanners';
 
 export const dynamic = 'force-dynamic';
-
-// ─── CSV parser ────────────────────────────────────────────────────────────────
-
-interface CSVEmployee {
-  name: string;
-  email: string;
-  scannerRef: string;
-}
-
-function parseCSVLine(line: string): string[] {
-  const cols: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  for (const char of line) {
-    if (char === '"') { inQuotes = !inQuotes; }
-    else if (char === ',' && !inQuotes) { cols.push(current.trim()); current = ''; }
-    else { current += char; }
-  }
-  cols.push(current.trim());
-  return cols.map(c => c.replace(/^"|"$/g, ''));
-}
-
-function loadEmployeesCSV(): CSVEmployee[] {
-  try {
-    const text = readFileSync(join(process.cwd(), 'public', 'employees.csv'), 'utf-8');
-    return text.trim().split('\n').slice(2).map(line => {
-      const cols = parseCSVLine(line);
-      if (cols.length < 4) return null;
-      const eid = (cols[8] ?? '').trim();
-      const parts = eid.split(' ');
-      const scannerRef = parts.length === 3 ? parts[1] + parts[0].substring(0, 2) + parts[2] : '';
-      return {
-        name: (cols[0] ?? '').trim(),
-        email: (cols[10] ?? '').trim(),
-        scannerRef,
-      };
-    }).filter((e): e is CSVEmployee => !!e && e.name !== '');
-  } catch (e) {
-    console.error('Failed to load employees.csv:', e);
-    return [];
-  }
-}
 
 // ─── Hikvision helpers ────────────────────────────────────────────────────────
 
@@ -63,7 +20,7 @@ function formatDisplayTime(isoTime: string): string {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  return new Date().toISOString().slice(0, 10);
 }
 
 // ─── Hikvision event type ─────────────────────────────────────────────────────
@@ -80,7 +37,8 @@ interface HikvisionEvent {
 
 export async function GET() {
   try {
-    const url = `${process.env.SCANNER_URL}/ISAPI/AccessControl/AcsEvent?format=json`;
+    const scanner = SCANNERS[0];
+    const url = `http://${scanner.ip}/ISAPI/AccessControl/AcsEvent?format=json`;
 
     const now = new Date();
     const startOfToday = new Date(now);
@@ -96,7 +54,7 @@ export async function GET() {
 
       const { data, res } = await request(url, {
         method: 'POST',
-        digestAuth: `${process.env.SCANNER_USER}:${process.env.SCANNER_PASS}`,
+        digestAuth: `${scanner.user}:${scanner.pass}`,
         data: {
           AcsEventCond: {
             searchID: Date.now().toString(),
@@ -123,18 +81,19 @@ export async function GET() {
       if (eventList.length === 0 || (data as { AcsEvent?: { numOfMatches?: number } }).AcsEvent?.numOfMatches === 0) isFetching = false;
     }
 
-    // Filter to valid employee scans only
     const validScans = allEvents.filter(e =>
       e.employeeNoString && e.employeeNoString !== '0' && e.employeeNoString !== ''
     );
 
-    // Sort oldest-first for correct clock-in / clock-out assignment
     const chronological = [...validScans].sort((a, b) => Number(a.serialNo) - Number(b.serialNo));
 
-    const employees = loadEmployeesCSV();
     const today = todayStr();
 
-    // Group scans by employee
+    const allStaff = await prisma.branchStaff.findMany({
+      select: { employeeId: true, name: true, email: true },
+    });
+    const staffByEmpNo = new Map(allStaff.map(s => [s.employeeId, s]));
+
     const groups = new Map<string, { time: string; serialNo: string }[]>();
     for (const event of chronological) {
       const empNo = event.employeeNoString;
@@ -142,63 +101,59 @@ export async function GET() {
       groups.get(empNo)!.push({ time: event.time, serialNo: String(event.serialNo) });
     }
 
-    // ── Process each employee who scanned today ────────────────────────────────
     for (const [empNo, scans] of groups) {
-      const emp = employees.find(e => e.scannerRef === empNo);
-      const empName = emp?.name ?? empNo;
-      const empEmail = emp?.email ?? '';
+      const staff    = staffByEmpNo.get(empNo);
+      const empName  = staff?.name  ?? empNo;
+      const empEmail = staff?.email ?? '';
 
       const first = scans[0];
-      const last = scans[scans.length - 1];
+      const last  = scans[scans.length - 1];
       const hasCheckOut = scans.length > 1;
 
-      const clockInTime = formatDisplayTime(first.time);
+      const clockInTime  = formatDisplayTime(first.time);
       const clockOutTime = hasCheckOut ? formatDisplayTime(last.time) : null;
 
-      // Upsert the DB row — create on first scan, update clock-out on subsequent scans
       const existing = await prisma.attendanceLog.findUnique({
         where: { date_empNo: { date: today, empNo } },
       });
 
       if (!existing) {
-        // ── First time we see this person today: create row + send clock-in email ──
         await prisma.attendanceLog.create({
           data: {
             date: today,
             empNo,
             empName,
             clockInTime,
-            clockInSerialNo: first.serialNo,
-            clockInEmailSent: false, // will be set true below after send
+            clockInSerialNo:   first.serialNo,
+            clockInEmailSent:  false,
             clockOutTime,
-            // clockOutSerialNo tracks the last scan we sent a clock-out email for.
-            // Start as null so the first clock-out scan triggers an email.
-            clockOutSerialNo: null,
+            clockOutSerialNo:  null,
             clockOutEmailSent: false,
+            scannerLocation:   scanner.location,
           },
         });
 
-        // Send clock-in email
         if (empEmail) {
           try {
             await sendClockInEmail(empEmail, empName, clockInTime);
             await prisma.attendanceLog.update({
               where: { date_empNo: { date: today, empNo } },
-              data: { clockInEmailSent: true },
+              data:  { clockInEmailSent: true },
             });
             console.log(`✅ Clock-in email → ${empName} <${empEmail}>`);
           } catch (e) {
             console.error(`Clock-in email failed for ${empName}:`, e);
           }
+        } else {
+          console.warn(`⚠ No email for ${empName} (empNo: ${empNo}) — clock-in email skipped. Add email to BranchStaff.`);
         }
 
-        // If there's already a second scan in the same batch, send clock-out email too
         if (hasCheckOut && empEmail) {
           try {
             await sendClockOutEmail(empEmail, empName, clockOutTime!);
             await prisma.attendanceLog.update({
               where: { date_empNo: { date: today, empNo } },
-              data: { clockOutTime, clockOutSerialNo: last.serialNo, clockOutEmailSent: true },
+              data:  { clockOutTime, clockOutSerialNo: last.serialNo, clockOutEmailSent: true },
             });
             console.log(`🔴 Clock-out email → ${empName} <${empEmail}>`);
           } catch (e) {
@@ -207,15 +162,13 @@ export async function GET() {
         }
 
       } else {
-        // ── Row exists ─────────────────────────────────────────────────────────────
 
-        // Safety net: send clock-in email if it was never sent
         if (!existing.clockInEmailSent && empEmail) {
           try {
             await sendClockInEmail(empEmail, empName, existing.clockInTime);
             await prisma.attendanceLog.update({
               where: { date_empNo: { date: today, empNo } },
-              data: { clockInEmailSent: true },
+              data:  { clockInEmailSent: true },
             });
             console.log(`✅ Clock-in email (retry) → ${empName} <${empEmail}>`);
           } catch (e) {
@@ -223,34 +176,38 @@ export async function GET() {
           }
         }
 
-        // Clock-out email: send whenever there's a new scan we haven't emailed yet.
-        // We track this by comparing the latest scan's serialNo with the last serialNo
-        // we sent a clock-out email for (clockOutSerialNo). A new scan = different serial.
         if (hasCheckOut && last.serialNo !== existing.clockOutSerialNo) {
           if (empEmail) {
             try {
               await sendClockOutEmail(empEmail, empName, clockOutTime!);
               console.log(`🔴 Clock-out email → ${empName} <${empEmail}> (serial ${last.serialNo})`);
+              await prisma.attendanceLog.update({
+                where: { date_empNo: { date: today, empNo } },
+                data:  { clockOutTime, clockOutSerialNo: last.serialNo, clockOutEmailSent: true },
+              });
             } catch (e) {
               console.error(`Clock-out email failed for ${empName}:`, e);
+              await prisma.attendanceLog.update({
+                where: { date_empNo: { date: today, empNo } },
+                data:  { clockOutTime, clockOutSerialNo: last.serialNo, clockOutEmailSent: false },
+              });
             }
+          } else {
+            console.warn(`⚠ No email for ${empName} (empNo: ${empNo}) — clock-out email skipped. Add email to BranchStaff.`);
+            await prisma.attendanceLog.update({
+              where: { date_empNo: { date: today, empNo } },
+              data:  { clockOutTime, clockOutSerialNo: last.serialNo, clockOutEmailSent: false },
+            });
           }
-          // Update clockOutTime + clockOutSerialNo (marks this scan as emailed)
-          await prisma.attendanceLog.update({
-            where: { date_empNo: { date: today, empNo } },
-            data: { clockOutTime, clockOutSerialNo: last.serialNo, clockOutEmailSent: true },
-          });
         } else if (hasCheckOut && clockOutTime !== existing.clockOutTime) {
-          // Same serialNo but time string differs — just keep display in sync
           await prisma.attendanceLog.update({
             where: { date_empNo: { date: today, empNo } },
-            data: { clockOutTime },
+            data:  { clockOutTime },
           });
         }
       }
     }
 
-    // Return newest-first for the UI
     const newestFirst = validScans.sort((a, b) => Number(b.serialNo) - Number(a.serialNo));
     return new NextResponse(JSON.stringify(newestFirst, null, 2), {
       status: 200,
@@ -265,4 +222,3 @@ export async function GET() {
     );
   }
 }
-                                                                       
