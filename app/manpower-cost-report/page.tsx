@@ -99,6 +99,8 @@ export default function ManpowerCostReportPage() {
   const { data: session } = useSession({ required: true });
   const userRole = (session?.user as any)?.role || "";
   const userName = (session?.user as any)?.name || "";
+  // For employee accounts, User.branchName currently stores their name (matches Employee.name and ManpowerSchedule.selections values).
+  const employeeName = (session?.user as any)?.branchName || "";
   const isEmployee = userRole === "Part_Time" || userRole === "Full_Time";
   const isEmployeePT = userRole === "Part_Time";
   const isEmployeeFT = userRole === "Full_Time";
@@ -368,6 +370,7 @@ export default function ManpowerCostReportPage() {
     })
     .filter((s): s is StaffEntry => {
       if (!s) return false;
+      if (isEmployee && employeeName && s.name.trim().toLowerCase() !== employeeName.trim().toLowerCase()) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!s.name.toLowerCase().includes(q) && !s.branch.toLowerCase().includes(q)) return false;
@@ -417,7 +420,7 @@ export default function ManpowerCostReportPage() {
             </div>
           </div>
           <UserHeader
-            userName={userName || (isEmployee ? data?.staff?.[0]?.name : null) || session?.user?.email?.split("@")[0] || "User"}
+            userName={(isEmployee ? employeeName : userName) || userName || session?.user?.email?.split("@")[0] || "User"}
             userEmail={session?.user?.email || ""}
           />
         </div>
