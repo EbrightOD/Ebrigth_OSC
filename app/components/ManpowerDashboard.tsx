@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { format, parseISO } from "date-fns";
 import Sidebar from "@/app/components/Sidebar";
+import ManpowerDashboardMatrix from "@/app/components/ManpowerDashboardMatrix";
 import { isBranchManager } from "@/lib/roles";
 import {
   ALL_BRANCHES,
@@ -227,9 +228,11 @@ export default function ManpowerDashboard() {
               )}
 
               {showingAllBranches ? (
-                <div className="text-slate-500 font-bold uppercase tracking-widest text-sm p-6">
-                  All Branches matrix — coming in the next task
-                </div>
+                <ManpowerDashboardMatrix
+                  schedules={relevantSchedules}
+                  weekStart={selectedWeek.startDate}
+                  onBranchClick={(b) => setBranchTab(b)}
+                />
               ) : !isWeekPlanned(activeBranchSchedule) ? (
                 <EmptyStateCard
                   weekKey={weekKey}
