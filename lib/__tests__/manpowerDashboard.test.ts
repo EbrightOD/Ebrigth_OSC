@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { getWeekRanges, countClassesForSlot } from '@/lib/manpowerDashboard';
+import {
+  getWeekRanges,
+  countClassesForSlot,
+  countClassesForDay,
+  countClassesForWeek,
+  isWeekPlanned,
+} from '@/lib/manpowerDashboard';
 
 describe('getWeekRanges', () => {
   it('returns last/this/next Mon-Sun ranges for a mid-week day', () => {
@@ -87,5 +93,97 @@ describe('countClassesForSlot', () => {
       [`Thursday-${OPENING}-coach2`]: 'Aina Nabihah',
     };
     expect(countClassesForSlot(selections, 'Thursday', OPENING, 'Ampang')).toBe(0);
+  });
+});
+
+describe('countClassesForDay', () => {
+  it('sums countClassesForSlot across all slots of the day', () => {
+    const selections = {
+      'Thursday-06.00PM - 07.15PM-coach1': 'Faizal',
+      'Thursday-06.00PM - 07.15PM-coach2': 'Aina Nabihah',
+      'Thursday-07:15PM - 08:30PM-coach1': 'Faizal',
+      'Thursday-08.30PM - 09:45PM-coach1': 'Faizal',
+    };
+    // Ampang weekday slots include three non-opening/closing slots above.
+    // Counts: 2 + 1 + 1 = 4.
+    expect(countClassesForDay(selections, 'Thursday', 'Ampang')).toBe(4);
+  });
+
+  it('returns 0 for a branch that does not run that day', () => {
+    // Rimbayu only runs Sat/Sun.
+    const selections = {
+      'Thursday-06.00PM - 07.15PM-coach1': 'Faizal',
+    };
+    expect(countClassesForDay(selections, 'Thursday', 'Rimbayu')).toBe(0);
+  });
+
+  it('excludes opening/closing slot counts', () => {
+    const selections = {
+      'Thursday-5:00 PM - 6:00 PM-coach1': 'Faizal', // Ampang opening
+      'Thursday-06.00PM - 07.15PM-coach1': 'Faizal',
+    };
+    expect(countClassesForDay(selections, 'Thursday', 'Ampang')).toBe(1);
+  });
+});
+
+describe('countClassesForWeek', () => {
+  it('sums across all working days for the branch', () => {
+    const selections = {
+      'Thursday-06.00PM - 07.15PM-coach1': 'Faizal',
+      'Friday-06.00PM - 07.15PM-coach1': 'Faizal',
+      'Saturday-09:15 AM – 10:30 AM-coach1': 'Faizal',
+    };
+    // Ampang runs Thu/Fri/Sat/Sun: 1 + 1 + 1 + 0 = 3.
+    expect(countClassesForWeek(selections, 'Ampang')).toBe(3);
+  });
+
+  it('returns 0 when no coach cells are filled', () => {
+    const selections = {
+      'Thursday-06.00PM - 07.15PM-exec1': 'Danish',
+      'Thursday-06.00PM - 07.15PM-MANAGER': 'Zahid',
+    };
+    expect(countClassesForWeek(selections, 'Ampang')).toBe(0);
+  });
+});
+
+describe('isWeekPlanned', () => {
+  it('returns false when schedule is null', () => {
+    expect(isWeekPlanned(null)).toBe(false);
+  });
+
+  it('returns false when schedule is undefined', () => {
+    expect(isWeekPlanned(undefined)).toBe(false);
+  });
+
+  it('returns false when selections has no coach cells', () => {
+    expect(
+      isWeekPlanned({
+        selections: {
+          'Thursday-06.00PM - 07.15PM-exec1': 'Danish',
+          'Thursday-06.00PM - 07.15PM-MANAGER': 'Zahid',
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('returns false when coach cells are all "None" or empty', () => {
+    expect(
+      isWeekPlanned({
+        selections: {
+          'Thursday-06.00PM - 07.15PM-coach1': 'None',
+          'Thursday-06.00PM - 07.15PM-coach2': '',
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('returns true when at least one coach cell is filled', () => {
+    expect(
+      isWeekPlanned({
+        selections: {
+          'Thursday-06.00PM - 07.15PM-coach1': 'Faizal',
+        },
+      }),
+    ).toBe(true);
   });
 });

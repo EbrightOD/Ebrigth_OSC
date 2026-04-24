@@ -4,7 +4,11 @@ import {
   addWeeks,
   format,
 } from 'date-fns';
-import { isOpeningClosingSlot } from '@/lib/manpowerUtils';
+import {
+  isOpeningClosingSlot,
+  getTimeSlotsForDay,
+  getWorkingDaysForBranch,
+} from '@/lib/manpowerUtils';
 
 export type WeekRange = {
   startDate: string;
@@ -56,4 +60,43 @@ export function countClassesForSlot(
     if (isFilled(selections[`${day}-${slot}-${col}`])) count++;
   }
   return count;
+}
+
+export function countClassesForDay(
+  selections: SelectionsMap,
+  day: string,
+  branch: string,
+): number {
+  if (!getWorkingDaysForBranch(branch).includes(day)) return 0;
+  const slots = getTimeSlotsForDay(day, branch);
+  let total = 0;
+  for (const slot of slots) {
+    total += countClassesForSlot(selections, day, slot, branch);
+  }
+  return total;
+}
+
+export function countClassesForWeek(
+  selections: SelectionsMap,
+  branch: string,
+): number {
+  const days = getWorkingDaysForBranch(branch);
+  let total = 0;
+  for (const day of days) {
+    total += countClassesForDay(selections, day, branch);
+  }
+  return total;
+}
+
+export type SchedulePlanned = { selections: SelectionsMap } | null | undefined;
+
+export function isWeekPlanned(schedule: SchedulePlanned): boolean {
+  if (!schedule) return false;
+  const { selections } = schedule;
+  if (!selections || typeof selections !== 'object') return false;
+  for (const key of Object.keys(selections)) {
+    if (!/-coach[1-5]$/.test(key)) continue;
+    if (isFilled(selections[key])) return true;
+  }
+  return false;
 }
