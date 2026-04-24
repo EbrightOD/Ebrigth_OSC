@@ -231,9 +231,12 @@ export default function ManpowerDashboard() {
                   All Branches matrix — coming in the next task
                 </div>
               ) : !isWeekPlanned(activeBranchSchedule) ? (
-                <div className="text-slate-500 font-bold uppercase tracking-widest text-sm p-6">
-                  Empty state — coming in the next task
-                </div>
+                <EmptyStateCard
+                  weekKey={weekKey}
+                  branch={activeBranch}
+                  range={selectedWeek}
+                  isBM={isBM}
+                />
               ) : (
                 <PerBranchView
                   schedule={activeBranchSchedule!}
@@ -412,4 +415,56 @@ function useMemoStaffList(selections: SelectionsMap): string[] {
     }
     return Array.from(set);
   }, [selections]);
+}
+
+function EmptyStateCard({
+  weekKey,
+  branch,
+  range,
+  isBM,
+}: {
+  weekKey: WeekKey;
+  branch: string;
+  range: WeekRange;
+  isBM: boolean;
+}) {
+  const showCTA = isBM && weekKey !== "lastWeek";
+  let heading: string;
+  let body: string;
+  if (weekKey === "lastWeek") {
+    heading = "📭 No data recorded";
+    body = "No data was recorded for last week.";
+  } else if (isBM && weekKey === "nextWeek") {
+    heading = "📝 Not planned yet";
+    body = "Next week's manpower hasn't been planned. BMs should plan 2 weeks ahead.";
+  } else if (isBM && weekKey === "thisWeek") {
+    heading = "📝 Not planned yet";
+    body = "This week wasn't planned. Plan it now to track attendance.";
+  } else {
+    heading = "📝 Not planned yet";
+    body = `${branch} hasn't planned this week yet.`;
+  }
+
+  const ctaHref = `/manpower-schedule/plan-new-week?start=${range.startDate}&end=${range.endDate}`;
+  const ctaLabel = weekKey === "nextWeek" ? "Plan Next Week Now →" : "Plan This Week Now →";
+
+  return (
+    <div className="flex items-center justify-center py-16">
+      <div className="bg-white p-10 rounded-[2rem] shadow-xl border border-slate-100 text-center max-w-md w-full">
+        <h2 className="text-2xl font-black text-slate-800 mb-3 uppercase tracking-tight">{heading}</h2>
+        <p className="text-slate-600 mb-6">{body}</p>
+        {showCTA && (
+          <a
+            href={ctaHref}
+            className="inline-block w-full py-4 bg-green-600 text-white font-black rounded-xl hover:bg-green-700 uppercase tracking-widest transition-colors shadow-md"
+          >
+            {ctaLabel}
+          </a>
+        )}
+        <p className="mt-4 text-xs text-slate-400 font-bold uppercase tracking-widest">
+          {range.startDate} – {range.endDate} (Mon – Sun)
+        </p>
+      </div>
+    </div>
+  );
 }
