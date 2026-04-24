@@ -6,9 +6,20 @@ import { useSession } from "next-auth/react";
 import { format, parseISO } from "date-fns";
 import Sidebar from "@/app/components/Sidebar";
 import { isBranchManager } from "@/lib/roles";
-import { ALL_BRANCHES } from "@/lib/manpowerUtils";
 import {
+  ALL_BRANCHES,
+  COLUMNS,
+  getStaffColorByIndex,
+  getTimeSlotsForDay,
+  getWorkingDaysForBranch,
+  isOpeningClosingSlot,
+} from "@/lib/manpowerUtils";
+import {
+  countClassesForDay,
+  countClassesForSlot,
+  countClassesForWeek,
   getWeekRanges,
+  isWeekPlanned,
   type WeekRange,
   type SelectionsMap,
 } from "@/lib/manpowerDashboard";
@@ -88,6 +99,36 @@ export default function ManpowerDashboard() {
 
   const headerBranchLabel = isBM ? userBranch : "All Branches";
 
+  const [branchTab, setBranchTab] = useState<string>("__ALL__");
+  // For BMs, force branchTab to their own branch on session load
+  useEffect(() => {
+    if (isBM && userBranch) setBranchTab(userBranch);
+  }, [isBM, userBranch]);
+
+  const showingAllBranches = !isBM && branchTab === "__ALL__";
+  const activeBranch = isBM ? (userBranch as string) : branchTab;
+
+  const activeBranchSchedule = useMemo(() => {
+    if (showingAllBranches) return null;
+    return (
+      relevantSchedules.find(
+        (s) => s.branch === activeBranch && s.startDate === selectedWeek.startDate,
+      ) ?? null
+    );
+  }, [relevantSchedules, activeBranch, selectedWeek.startDate, showingAllBranches]);
+
+  const workingDays = useMemo(
+    () => (showingAllBranches ? [] : getWorkingDaysForBranch(activeBranch)),
+    [showingAllBranches, activeBranch],
+  );
+
+  const [selectedDay, setSelectedDay] = useState<string>("");
+  useEffect(() => {
+    if (!showingAllBranches && workingDays.length > 0 && !workingDays.includes(selectedDay)) {
+      setSelectedDay(workingDays[0]);
+    }
+  }, [showingAllBranches, workingDays, selectedDay]);
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen((p) => !p)} />
@@ -155,12 +196,220 @@ export default function ManpowerDashboard() {
               </button>
             </div>
           ) : (
-            <div className="text-slate-500 font-bold uppercase tracking-widest text-sm p-6">
-              {relevantSchedules.length} schedule(s) for {WEEK_LABELS[weekKey]}
-            </div>
+            <>
+              {/* Branch Tabs (admin only) */}
+              {!isBM && (
+                <div className="flex gap-2 flex-wrap mb-4">
+                  <button
+                    onClick={() => setBranchTab("__ALL__")}
+                    className={`px-4 py-2 rounded-xl font-black uppercase text-xs tracking-wide transition-all shadow-sm ${
+                      branchTab === "__ALL__"
+                        ? "bg-[#2D3F50] text-white"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    All Branches
+                  </button>
+                  {ALL_BRANCHES.map((b) => (
+                    <button
+                      key={b}
+                      onClick={() => setBranchTab(b)}
+                      className={`px-4 py-2 rounded-xl font-black uppercase text-xs tracking-wide transition-all shadow-sm ${
+                        branchTab === b
+                          ? "bg-[#2D3F50] text-white"
+                          : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {showingAllBranches ? (
+                <div className="text-slate-500 font-bold uppercase tracking-widest text-sm p-6">
+                  All Branches matrix — coming in the next task
+                </div>
+              ) : !isWeekPlanned(activeBranchSchedule) ? (
+                <div className="text-slate-500 font-bold uppercase tracking-widest text-sm p-6">
+                  Empty state — coming in the next task
+                </div>
+              ) : (
+                <PerBranchView
+                  schedule={activeBranchSchedule!}
+                  branch={activeBranch}
+                  workingDays={workingDays}
+                  selectedDay={selectedDay}
+                  setSelectedDay={setSelectedDay}
+                />
+              )}
+            </>
           )}
         </div>
       </main>
     </div>
   );
+}
+
+type ScheduleForView = {
+  id: string;
+  branch: string;
+  startDate: string;
+  endDate: string;
+  selections: SelectionsMap;
+  notes: Record<string, string>;
+  status: string;
+};
+
+function PerBranchView({
+  schedule,
+  branch,
+  workingDays,
+  selectedDay,
+  setSelectedDay,
+}: {
+  schedule: ScheduleForView;
+  branch: string;
+  workingDays: string[];
+  selectedDay: string;
+  setSelectedDay: (d: string) => void;
+}) {
+  const day = selectedDay;
+  const slots = day ? getTimeSlotsForDay(day, branch) : [];
+  const dayTotal = day ? countClassesForDay(schedule.selections, day, branch) : 0;
+  const weekTotal = countClassesForWeek(schedule.selections, branch);
+
+  const coachNamesForSlot = (slot: string): string[] => {
+    const names: string[] = [];
+    for (const col of COLUMNS) {
+      if (col.type !== "coach") continue;
+      const v = schedule.selections[`${day}-${slot}-${col.id}`];
+      if (v && v !== "None") names.push(v);
+    }
+    return names;
+  };
+
+  const managerForSlot = (slot: string): string => {
+    const v = schedule.selections[`${day}-${slot}-MANAGER`];
+    return v && v !== "None" ? v : "";
+  };
+
+  const allNames = useMemoStaffList(schedule.selections);
+
+  return (
+    <div className="space-y-4">
+      {/* Day Tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {workingDays.map((d) => {
+          const active = d === selectedDay;
+          return (
+            <button
+              key={d}
+              onClick={() => setSelectedDay(d)}
+              className={`px-6 py-3 rounded-xl font-black uppercase text-sm tracking-wide transition-all shadow-sm ${
+                active
+                  ? "bg-[#2D3F50] text-white shadow-lg scale-105"
+                  : "bg-white text-slate-500 border-2 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {d.slice(0, 3)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table */}
+      {day && (
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+          <header className="bg-white p-4 border-b flex items-center justify-between">
+            <h2 className="text-xl font-black uppercase text-slate-800 m-0">{day}</h2>
+            <span className="text-xs font-black uppercase tracking-widest text-slate-500">
+              Day total: {dayTotal} class{dayTotal === 1 ? "" : "es"}
+            </span>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse" style={{ minWidth: "900px" }}>
+              <thead className="bg-[#2D3F50] text-white text-[10px] uppercase tracking-widest">
+                <tr>
+                  <th className="p-3 text-left w-[180px]">Time Slot</th>
+                  <th className="p-3 text-left w-[160px]">Manager on Duty</th>
+                  <th className="p-3 text-left">Coaches</th>
+                  <th className="p-3 text-right w-[100px]">Classes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {slots.map((slot) => {
+                  const isOpenClose = isOpeningClosingSlot(slot, branch);
+                  if (isOpenClose) {
+                    return (
+                      <tr key={slot} className="border-b bg-blue-50">
+                        <td className="p-3 font-bold text-xs text-slate-900">{slot}</td>
+                        <td colSpan={3} className="p-3 text-center">
+                          <span className="inline-flex items-center gap-2 bg-blue-600 text-white text-xs font-black px-4 py-1.5 rounded-full uppercase tracking-widest">
+                            All Staff — Executive
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const mgr = managerForSlot(slot);
+                  const coaches = coachNamesForSlot(slot);
+                  const count = countClassesForSlot(schedule.selections, day, slot, branch);
+                  return (
+                    <tr key={slot} className="border-b hover:bg-slate-50">
+                      <td className="p-3 font-bold text-xs text-slate-900">{slot}</td>
+                      <td className="p-3">
+                        {mgr ? (
+                          <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${getStaffColorByIndex(mgr, allNames)}`}>
+                            {mgr}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <div className="flex flex-wrap gap-1.5">
+                          {coaches.length === 0 ? (
+                            <span className="text-slate-300 text-xs">—</span>
+                          ) : (
+                            coaches.map((name) => (
+                              <span
+                                key={name}
+                                className={`inline-block px-2 py-1 rounded text-xs font-bold ${getStaffColorByIndex(name, allNames)}`}
+                              >
+                                {name}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 text-right text-sm font-black text-slate-800">{count}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 text-right">
+        <span className="text-sm font-black uppercase tracking-widest text-slate-800">
+          Week total: {weekTotal} class{weekTotal === 1 ? "" : "es"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Build a stable ordered list of staff names appearing in this schedule's
+// selections, so getStaffColorByIndex assigns consistent colours per name.
+function useMemoStaffList(selections: SelectionsMap): string[] {
+  return useMemo(() => {
+    const set = new Set<string>();
+    for (const v of Object.values(selections)) {
+      if (v && v !== "None") set.add(v);
+    }
+    return Array.from(set);
+  }, [selections]);
 }
