@@ -4,6 +4,7 @@ import {
   addWeeks,
   format,
 } from 'date-fns';
+import { isOpeningClosingSlot } from '@/lib/manpowerUtils';
 
 export type WeekRange = {
   startDate: string;
@@ -31,4 +32,28 @@ export function getWeekRanges(today: Date): WeekRanges {
     thisWeek: toRange(today),
     nextWeek: toRange(addWeeks(today, 1)),
   };
+}
+
+export type SelectionsMap = Record<string, string>;
+
+const COACH_COLUMN_IDS = ['coach1', 'coach2', 'coach3', 'coach4', 'coach5'] as const;
+
+function isFilled(value: string | undefined): boolean {
+  if (!value) return false;
+  if (value === 'None') return false;
+  return true;
+}
+
+export function countClassesForSlot(
+  selections: SelectionsMap,
+  day: string,
+  slot: string,
+  branch: string,
+): number {
+  if (isOpeningClosingSlot(slot, branch)) return 0;
+  let count = 0;
+  for (const col of COACH_COLUMN_IDS) {
+    if (isFilled(selections[`${day}-${slot}-${col}`])) count++;
+  }
+  return count;
 }

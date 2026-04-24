@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getWeekRanges } from '@/lib/manpowerDashboard';
+import { getWeekRanges, countClassesForSlot } from '@/lib/manpowerDashboard';
 
 describe('getWeekRanges', () => {
   it('returns last/this/next Mon-Sun ranges for a mid-week day', () => {
@@ -38,5 +38,54 @@ describe('getWeekRanges', () => {
     const today = new Date('2026-12-29T10:00:00');
     const { nextWeek } = getWeekRanges(today);
     expect(nextWeek).toEqual({ startDate: '2027-01-04', endDate: '2027-01-10' });
+  });
+});
+
+describe('countClassesForSlot', () => {
+  const WEEKDAY_SLOT = '06.00PM - 07.15PM';
+
+  it('returns 0 when selections is empty', () => {
+    expect(countClassesForSlot({}, 'Thursday', WEEKDAY_SLOT, 'Ampang')).toBe(0);
+  });
+
+  it('counts filled coach cells (coach1..coach5)', () => {
+    const selections = {
+      [`Thursday-${WEEKDAY_SLOT}-coach1`]: 'Faizal',
+      [`Thursday-${WEEKDAY_SLOT}-coach2`]: 'Aina Nabihah',
+    };
+    expect(countClassesForSlot(selections, 'Thursday', WEEKDAY_SLOT, 'Ampang')).toBe(2);
+  });
+
+  it('treats "None" and empty string as not filled', () => {
+    const selections = {
+      [`Thursday-${WEEKDAY_SLOT}-coach1`]: '',
+      [`Thursday-${WEEKDAY_SLOT}-coach2`]: 'None',
+      [`Thursday-${WEEKDAY_SLOT}-coach3`]: 'Faizal',
+    };
+    expect(countClassesForSlot(selections, 'Thursday', WEEKDAY_SLOT, 'Ampang')).toBe(1);
+  });
+
+  it('ignores exec1..exec5 columns', () => {
+    const selections = {
+      [`Thursday-${WEEKDAY_SLOT}-exec1`]: 'Danish',
+      [`Thursday-${WEEKDAY_SLOT}-exec2`]: 'Irfan',
+    };
+    expect(countClassesForSlot(selections, 'Thursday', WEEKDAY_SLOT, 'Ampang')).toBe(0);
+  });
+
+  it('ignores MANAGER column', () => {
+    const selections = {
+      [`Thursday-${WEEKDAY_SLOT}-MANAGER`]: 'Zahid',
+    };
+    expect(countClassesForSlot(selections, 'Thursday', WEEKDAY_SLOT, 'Ampang')).toBe(0);
+  });
+
+  it('returns 0 for opening/closing slots regardless of selections', () => {
+    const OPENING = '5:00 PM - 6:00 PM'; // Ampang opening slot
+    const selections = {
+      [`Thursday-${OPENING}-coach1`]: 'Faizal',
+      [`Thursday-${OPENING}-coach2`]: 'Aina Nabihah',
+    };
+    expect(countClassesForSlot(selections, 'Thursday', OPENING, 'Ampang')).toBe(0);
   });
 });
