@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { BRANCH_OPTIONS, ROLE_OPTIONS, CONTRACT_OPTIONS, GENDER_OPTIONS } from "@/lib/constants";
+import { BRANCH_OPTIONS, ROLE_OPTIONS, CONTRACT_OPTIONS, GENDER_OPTIONS, ROLE_CODES } from "@/lib/constants";
 import { isSuperAdmin } from "@/lib/roles";
 import EmployeeIdInput from "@/app/components/EmployeeIdInput";
 import { splitEmployeeId, composeEmployeeId, isValidSuffix, isValidEmployeeId } from "@/lib/employeeId";
-import { ROLE_CODES } from "@/lib/constants";
 
 interface User {
   id: string;
@@ -57,6 +56,11 @@ const field = (label: string, value: string | undefined | null) => (
     <p className={`text-sm font-medium text-gray-900 ${UPPERCASE_LABELS.includes(label) ? "uppercase" : ""}`}>{value || "-"}</p>
   </div>
 );
+
+function hasUnrecognizedPrefix(employeeId: string | undefined): boolean {
+  if (!employeeId || !isValidEmployeeId(employeeId)) return false;
+  return !ROLE_CODES.includes(splitEmployeeId(employeeId).prefix);
+}
 
 // Defaults to "" so that a caller forgetting to pass userRole fails closed
 // via `isSuperAdmin("") === false`, rather than silently granting admin access.
@@ -359,13 +363,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
                           onPrefixChange={(v) => { setEmpIdPrefix(v); if (empIdError) setEmpIdError(""); }}
                           onSuffixChange={(v) => { setEmpIdSuffix(v); if (empIdError) setEmpIdError(""); }}
                           error={empIdError}
-                          warning={
-                            selectedUser?.employeeId &&
-                            isValidEmployeeId(selectedUser.employeeId) &&
-                            !ROLE_CODES.includes(splitEmployeeId(selectedUser.employeeId).prefix)
-                              ? "Existing ID has unrecognized role code"
-                              : undefined
-                          }
+                          warning={hasUnrecognizedPrefix(selectedUser?.employeeId) ? "Existing ID has unrecognized role code" : undefined}
                         />
                       </div>
                       <div className="md:col-span-2">
