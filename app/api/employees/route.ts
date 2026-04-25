@@ -162,6 +162,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
     }
 
+    if (employeeId !== undefined) {
+      if (!isValidEmployeeId(employeeId)) {
+        return NextResponse.json({ error: 'Employee ID must be exactly 8 digits' }, { status: 400 });
+      }
+      const existingByEmployeeId = await prisma.branchStaff.findFirst({
+        where: { employeeId, NOT: { id: parseInt(id) } },
+      });
+      if (existingByEmployeeId) {
+        return NextResponse.json({ error: 'Employee ID already exists' }, { status: 409 });
+      }
+    }
+
     const updated = await prisma.branchStaff.update({
       where: { id: parseInt(id) },
       data: {
