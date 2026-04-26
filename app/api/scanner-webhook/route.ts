@@ -93,7 +93,9 @@ async function processEvent(empNo: string, scanTime: string, serialNo: string): 
 
   const employees = loadEmployeesCSV();
   const emp = employees.find(e => e.scannerRef === empNo);
-  const empName = emp?.name ?? empNo;
+  // Never store the raw scanner ID as a name — it pollutes name-based reports.
+  const resolvedName = emp?.name ?? '';
+  const empName = (!resolvedName || resolvedName === empNo) ? '' : resolvedName;
   const empEmail = emp?.email ?? '';
 
   const today = todayMY();

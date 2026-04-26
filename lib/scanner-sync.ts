@@ -167,7 +167,11 @@ async function processScannerEvents(
   for (const [empNo, scans] of groups) {
     // ── Resolve name + email from BranchStaff ─────────────────────────────
     const staff    = staffByEmpNo.get(empNo);
-    const empName  = staff?.name  ?? empNo;   // fall back to scanner ID
+    // Resolve empName, but never store the raw scanner ID as the name —
+    // that pollutes name-based reporting. If lookup fails, store "" so the
+    // row is still queryable by empNo and reports can detect "name unknown".
+    const resolvedName = staff?.name ?? '';
+    const empName  = (!resolvedName || resolvedName === empNo) ? '' : resolvedName;
     const empEmail = staff?.email ?? '';
 
     const first       = scans[0];
