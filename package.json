@@ -83,7 +83,7 @@
     "@types/web-push": "^3.6.3",
     "@vitejs/plugin-react": "^4.3.1",
     "csv-parse": "^6.2.1",
-    "dotenv": "^17.4.2",
+    "dotenv": "^16.6.1",
     "eslint": "^9",
     "eslint-config-next": "^15",
     "playwright": "^1.59.1",
