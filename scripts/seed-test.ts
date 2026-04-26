@@ -23,7 +23,9 @@ async function main() {
 
   await prisma.user.createMany({
     data: [
-      { email: 'test.admin@ebright.test',  passwordHash: hash, role: 'ADMIN',          branchName: 'HQ' },
+      // Admin uses @example.test (not ebright) because DashboardHome treats any
+      // email containing "ebright" as a branch manager and would lock 6/7 cards.
+      { email: 'test.admin@example.test',  passwordHash: hash, role: 'ADMIN',          branchName: 'HQ' },
       { email: 'test.ampang@ebright.test', passwordHash: hash, role: 'BRANCH_MANAGER', branchName: 'Ampang' },
       { email: 'test.klang@ebright.test',  passwordHash: hash, role: 'BRANCH_MANAGER', branchName: 'Klang' },
     ],
