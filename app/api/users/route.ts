@@ -126,7 +126,7 @@ export async function PATCH(req: NextRequest) {
     }
     const { id, action, role } = parsed.data;
 
-    let updateData: Record<string, unknown> = {};
+    const updateData: Record<string, unknown> = {};
 
     if (action === 'toggle-status') {
       const current = await prisma.user.findUnique({ where: { id }, select: { status: true } });
