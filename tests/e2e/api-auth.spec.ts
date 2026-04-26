@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, login } from './fixtures';
 
 test.describe('API auth boundary', () => {
   // GET routes that should return 401 to an unauthenticated request.
@@ -21,5 +21,20 @@ test.describe('API auth boundary', () => {
   test('POST /api/sync-medical-leave returns 401 without a session', async ({ request }) => {
     const res = await request.post('/api/sync-medical-leave');
     expect(res.status()).toBe(401);
+  });
+});
+
+test.describe('Users endpoint role gate', () => {
+  test('BRANCH_MANAGER cannot POST to /api/users (403)', async ({ page, request }) => {
+    await login(page, 'ampang');
+
+    const cookies = await page.context().cookies();
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    const res = await request.post('/api/users', {
+      headers: { cookie: cookieHeader, 'content-type': 'application/json' },
+      data: { email: 'noop@ebright.test', password: 'whatever1', role: 'BRANCH_MANAGER', branchName: 'Klang' },
+    });
+    expect(res.status()).toBe(403);
   });
 });
