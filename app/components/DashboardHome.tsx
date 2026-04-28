@@ -107,9 +107,15 @@ export default function DashboardHome({ userRole, userEmail }: { userRole?: stri
       <main className="max-w-5xl mx-auto px-4 py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {dashboards.map((dashboard) => {
-            const isDisabled = branchManager && dashboard.id !== "hrms";
-            const targetHref = dashboard.id === "academy" ? "/academy" : dashboard.id === "sms" ? "/sms" : `/dashboards/${dashboard.id}`;
-            const href = isDisabled ? "#" : targetHref;
+            const isDisabled = branchManager && !["hrms", "inventory"].includes(dashboard.id);
+
+const targetHref = 
+  dashboard.id === "academy" ? "/academy" : 
+  dashboard.id === "sms" ? "/sms" : 
+  dashboard.id === "inventory" ? "/api/launch-inventory" : 
+  `/dashboards/${dashboard.id}`;
+
+const href = isDisabled ? "#" : targetHref;
 
             return (
               <Link key={dashboard.id} href={href} aria-disabled={isDisabled} className={isDisabled ? "pointer-events-none" : ""}>
