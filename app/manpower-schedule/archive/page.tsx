@@ -106,7 +106,7 @@ export default function ArchiveSchedulePage() {
       }
     };
     const fetchStaff = async () => {
-      const res = await fetch('/api/branch-staff');
+      const res = await fetch('/api/branch-staff?include=all');
       const staffList = await res.json();
       const grouped: Record<string, string[]> = {};
       const managers: Record<string, string[]> = {};

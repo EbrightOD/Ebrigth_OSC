@@ -150,16 +150,16 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
 
   const handleSave = async () => {
     if (!editData) return;
-    // Validate employeeId only if it changed
+    // Only send employeeId if BOTH parts are filled and valid; otherwise skip
+    // it from the payload so other field edits can still save.
     const original = splitEmployeeId(selectedUser?.employeeId || "");
     const idChanged = empIdPrefix !== original.prefix || empIdSuffix !== original.suffix;
-    if (idChanged) {
-      if (!empIdPrefix) { setEmpIdError("Select a role code"); return; }
-      if (!isValidSuffix(empIdSuffix)) { setEmpIdError("Enter exactly 6 digits"); return; }
-    }
+    const idIsComplete = !!empIdPrefix && isValidSuffix(empIdSuffix);
     setEmpIdError("");
     try {
-      const newEmployeeId = idChanged ? composeEmployeeId(empIdPrefix, empIdSuffix) : undefined;
+      const newEmployeeId = idChanged && idIsComplete
+        ? composeEmployeeId(empIdPrefix, empIdSuffix)
+        : undefined;
       const payload = newEmployeeId !== undefined
         ? { ...editData, employeeId: newEmployeeId }
         : editData;
@@ -364,6 +364,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
                           onSuffixChange={(v) => { setEmpIdSuffix(v); if (empIdError) setEmpIdError(""); }}
                           error={empIdError}
                           warning={hasUnrecognizedPrefix(selectedUser?.employeeId) ? "Existing ID has unrecognized role code" : undefined}
+                          required={false}
                         />
                       </div>
                       <div className="md:col-span-2">
@@ -446,7 +447,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Emergency Contact</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {inp("Contact Number", "Emc_Number", "tel")}
-                      {inp("Contact Email", "Emc_Email", "email")}
+                      {inp("Full Name", "Emc_Email", "text")}
                       <div className="md:col-span-2">{inp("Relationship", "Emc_Relationship")}</div>
                     </div>
                   </section>
@@ -522,7 +523,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Emergency Contact</h4>
                     <div className="grid grid-cols-2 gap-3">
                       {field("Contact Number", selectedUser.Emc_Number)}
-                      {field("Contact Email", selectedUser.Emc_Email)}
+                      {field("Full Name", selectedUser.Emc_Email)}
                       <div className="col-span-2">{field("Relationship", selectedUser.Emc_Relationship)}</div>
                     </div>
                   </section>

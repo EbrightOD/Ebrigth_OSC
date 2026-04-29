@@ -131,7 +131,7 @@ export default function UpdateSchedulePage() {
   const [drillMonth, setDrillMonth] = useState<number | null>(null);
 
   const fetchStaff = async () => {
-    const res = await fetch('/api/branch-staff');
+    const res = await fetch('/api/branch-staff?include=all');
     const staffList = await res.json();
     if (!Array.isArray(staffList)) return;
     const grouped: Record<string, string[]> = {};

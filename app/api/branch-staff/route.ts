@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireRole, assertSameBranch, canSeeAllBranches } from "@/lib/auth";
-import { MANAGEMENT_ROLES } from "@/lib/roles";
+import { MANAGEMENT_ROLES, hasAnyRole } from "@/lib/roles";
 
-export async function GET() {
+export async function GET(request: Request) {
   const { session, error } = await requireSession();
   if (error) return error;
 
@@ -56,8 +56,16 @@ export async function GET() {
     // Interim branch scoping: non-management users see only their own branch.
     // The DB stores branch as short codes; we filter on the mapped full names so
     // a session with branchName "Ampang" matches mapped.branch "Ampang".
+    //
+    // Cross-branch escape hatch for the manpower planning UI: callers with a
+    // management role can pass `?include=all` to bypass scoping when they need
+    // staff from other branches (e.g. Branch Manager taking a replacement from
+    // another branch). Non-management roles cannot escalate via this param.
+    const includeAll =
+      new URL(request.url).searchParams.get('include') === 'all' &&
+      hasAnyRole((session.user as { role?: unknown } | undefined)?.role, MANAGEMENT_ROLES);
     const userBranch = (session.user as { branchName?: string }).branchName;
-    const scoped = canSeeAllBranches(session)
+    const scoped = canSeeAllBranches(session) || includeAll
       ? mapped
       : mapped.filter(m => m.branch === userBranch);
 
