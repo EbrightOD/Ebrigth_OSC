@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSession, requireRole, assertSameBranch, canSeeAllBranches } from '@/lib/auth';
-import { ADMIN_ROLES } from '@/lib/roles';
+import { ADMIN_ROLES, isAcademy } from '@/lib/roles';
 import { isValidEmployeeId } from '@/lib/employeeId';
 
 // Map BranchStaff DB row → Employee shape expected by the frontend
@@ -39,6 +39,28 @@ function toEmployee(s: Record<string, unknown>) {
     biometricTemplate: (s.biometricTemplate as string) || null,
     registeredAt: s.createdAt ? new Date(s.createdAt as string).toISOString() : '',
     updatedAt: s.updatedAt ? new Date(s.updatedAt as string).toISOString() : '',
+    trainingStartDate: (s.trainingStartDate as string) || '',
+    trainingEndDate: (s.trainingEndDate as string) || '',
+  };
+}
+
+// Strict allowlist mapper for ACADEMY callers. Returns ONLY the 10 keys the
+// Academy role is permitted to see. Sensitive fields (NRIC, DOB, home_address,
+// bank, emergency contact, university, gender, nickname, employeeId,
+// biometricTemplate, accessStatus, probation, endDate, rate, hire_date,
+// signed_date, employment_type, email) MUST NOT leak over the wire.
+function toEmployeeForAcademy(s: Record<string, unknown>) {
+  return {
+    id: String(s.id),
+    fullName: (s.name as string) || '',
+    phone: (s.phone as string) || '',
+    branch: (s.branch as string) || '',
+    role: (s.role as string) || '',
+    contract: (s.contract as string) || '',
+    startDate: (s.start_date as string) || '',
+    Emp_Status: (s.status as string) || '',
+    trainingStartDate: (s.trainingStartDate as string) || '',
+    trainingEndDate: (s.trainingEndDate as string) || '',
   };
 }
 
@@ -65,16 +87,25 @@ export async function GET(request: Request) {
     where.branch = userBranch ?? '__none__';
   }
 
+  // Academy callers are restricted to FT/PT coaches. This intersects with any
+  // client-supplied role filter, so passing role=BM yields an empty result.
+  const callerRole = (session.user as { role?: unknown } | undefined)?.role;
+  if (isAcademy(callerRole)) {
+    where.role = { in: ["FT - Coach", "PT - Coach"] };
+  }
+
   const staff = await prisma.branchStaff.findMany({ where, orderBy: { id: 'asc' } });
 
-  let results = staff.map(toEmployee);
+  const mapper = isAcademy(callerRole) ? toEmployeeForAcademy : toEmployee;
+  let results = staff.map(mapper);
 
   if (search) {
-    results = results.filter(
-      e =>
-        e.fullName.toLowerCase().includes(search) ||
-        e.email.toLowerCase().includes(search) ||
-        e.employeeId.toLowerCase().includes(search)
+    results = results.filter((e: Record<string, unknown>) =>
+      isAcademy(callerRole)
+        ? (e.fullName as string).toLowerCase().includes(search)
+        : (e.fullName as string).toLowerCase().includes(search) ||
+          ((e.email as string) || '').toLowerCase().includes(search) ||
+          ((e.employeeId as string) || '').toLowerCase().includes(search)
     );
   }
 
