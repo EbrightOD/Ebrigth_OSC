@@ -10,12 +10,12 @@ import {
   COLUMNS,
 } from "@/lib/manpowerUtils";
 import { isEmployee } from "@/lib/roles";
+import { normalizeLocation } from "@/lib/constants";
 
-// Executive rate is fixed at RM11/hr for all
 const EXECUTIVE_RATE = 11;
 
 interface DailyHour {
-  day: string; // "Wednesday", "Thursday", etc.
+  day: string;
   coachHrs: number;
   execHrs: number;
   totalHrs: number;
@@ -33,10 +33,38 @@ interface StaffHourEntry {
   dailyBreakdown: DailyHour[];
 }
 
+type StaffRecord = {
+  id: number;
+  name: string | null;
+  nickname: string | null;
+  branch: string | null;
+  position: string | null;
+  role: string | null;
+  employment_type: string | null;
+  rate: string | null;
+  email: string | null;
+};
+
+const norm = (v: string | null | undefined) => (v ?? "").toLowerCase().trim();
+
 /**
- * Calculate staff hours from a ManpowerSchedule selections object.
- * Returns both totals and daily breakdown per employee.
+ * Compare two branch labels for equivalence. Schedules use full names
+ * ("Rimbayu", "Setia Alam") while BranchStaff often uses short codes
+ * ("RBY", "SA"). normalizeLocation maps codes → full names; we then accept
+ * an exact match or a substring match either way ("Rimbayu" ⊂ "Bandar Rimbayu").
  */
+function branchesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const na = norm(a);
+  const nb = norm(b);
+  if (na === nb) return true;
+  const fa = norm(normalizeLocation(a));
+  const fb = norm(normalizeLocation(b));
+  if (fa === fb) return true;
+  if (fa && fb && (fa.includes(fb) || fb.includes(fa))) return true;
+  return false;
+}
+
 function calculateHoursFromSelections(
   selections: Record<string, string>,
   branch: string
@@ -73,9 +101,7 @@ function calculateHoursFromSelections(
       });
 
       if (workedThatDay) {
-        // Exec hours = total working hours - coach hours (not from slots, to account for gaps)
         const execHrs = Math.max(0, dailyTarget - coachingHoursForDay);
-
         staffStats[emp].coachHrs += coachingHoursForDay;
         staffStats[emp].execHrs += execHrs;
         staffStats[emp].totalHrs = staffStats[emp].coachHrs + staffStats[emp].execHrs;
@@ -93,68 +119,121 @@ function calculateHoursFromSelections(
 }
 
 /**
- * GET /api/manpower-cost?month=2026-04
+ * Resolve a slot value (a name string written into ManpowerSchedule.selections)
+ * to a single BranchStaff record. Tries exact name/nickname match first, then
+ * substring matching to handle short-form names (e.g. slot says "Diena", staff
+ * record is "NUR IRDIENA BATRISYIA BINTI ASMAWI" with nickname "IRDIENA").
  *
- * Returns staff hours + cost data by parsing ManpowerSchedule selections
- * and joining with BranchStaff for employee details (employeeId, rate, role/position).
+ * When substring matching produces multiple candidates, prefer the one whose
+ * home branch matches the schedule's branch.
  */
+function buildStaffResolver(allStaff: StaffRecord[]) {
+  // Allow multiple candidates per name/nickname key — many staff share short
+  // nicknames like "IQBAL" or "LUQMANUL", so we can't first-write-wins.
+  const byKey: Record<string, StaffRecord[]> = {};
+  const push = (key: string, s: StaffRecord) => {
+    const list = (byKey[key] ||= []);
+    if (!list.includes(s)) list.push(s);
+  };
+  for (const s of allStaff) {
+    if (s.name) push(norm(s.name), s);
+    if (s.nickname) push(norm(s.nickname), s);
+  }
+
+  return (rawName: string, scheduleBranch: string): StaffRecord | null => {
+    const key = norm(rawName);
+    if (!key) return null;
+
+    const exact = byKey[key];
+    if (exact && exact.length > 0) {
+      if (exact.length === 1) return exact[0];
+      const branchMatch = exact.find((s) => branchesMatch(s.branch, scheduleBranch));
+      if (branchMatch) return branchMatch;
+      // Otherwise fall through and let substring matching try harder.
+    }
+
+    const candidates = allStaff.filter((s) => {
+      const n = norm(s.name);
+      const nk = norm(s.nickname);
+      if (n && (n === key || n.includes(key) || key.includes(n))) return true;
+      if (nk && (nk === key || nk.includes(key) || key.includes(nk))) return true;
+      return false;
+    });
+
+    if (candidates.length === 0) return exact?.[0] ?? null;
+    if (candidates.length === 1) return candidates[0];
+
+    const branchMatch = candidates.find((s) => branchesMatch(s.branch, scheduleBranch));
+    return branchMatch ?? candidates[0];
+  };
+}
+
+/**
+ * For an authenticated PT/FT user, resolve which BranchStaff record represents
+ * them. Tries email first (the only reliable join), then falls back to matching
+ * User.name / User.branchName against BranchStaff.name and BranchStaff.nickname
+ * (including substring matching).
+ */
+function resolveLoggedInStaff(
+  allStaff: StaffRecord[],
+  sessionEmail: string | null | undefined,
+  sessionName: string | null | undefined,
+  sessionBranchName: string | null | undefined
+): StaffRecord | null {
+  const email = norm(sessionEmail);
+  if (email) {
+    const byEmail = allStaff.find((s) => norm(s.email) === email);
+    if (byEmail) return byEmail;
+  }
+
+  const candidates = [norm(sessionName), norm(sessionBranchName)].filter(Boolean);
+  for (const c of candidates) {
+    const exact = allStaff.find((s) => norm(s.name) === c || norm(s.nickname) === c);
+    if (exact) return exact;
+  }
+  for (const c of candidates) {
+    const sub = allStaff.find((s) => {
+      const n = norm(s.name);
+      const nk = norm(s.nickname);
+      if (n && (n.includes(c) || c.includes(n))) return true;
+      if (nk && (nk.includes(c) || c.includes(nk))) return true;
+      return false;
+    });
+    if (sub) return sub;
+  }
+  return null;
+}
+
+function isPartTimeStaff(staff: StaffRecord): boolean {
+  const fields = [staff.position, staff.role, staff.employment_type]
+    .map((f) => (f ?? "").toUpperCase());
+  return fields.some(
+    (f) =>
+      f.startsWith("PT") ||
+      f.includes("PT -") ||
+      f.includes("PART-TIME") ||
+      f.includes("PART TIME"),
+  );
+}
+
+function shouldExcludeStaff(staff: StaffRecord): boolean {
+  const pos = (staff.position || staff.role || "").toUpperCase();
+  const name = (staff.name || "").toUpperCase();
+  if (pos.includes("BRANCH MANAGER")) return true;
+  if (pos.includes("INTERN")) return true;
+  if (name.includes("(TRAINING)")) return true;
+  return false;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const month = searchParams.get("month"); // e.g. "2026-04"
+    const month = searchParams.get("month");
 
-    // Get logged-in user session to determine role-based filtering
     const session = await getServerSession(authOptions);
     const sessionUser = session?.user as any;
     const userRole = sessionUser?.role || "";
     const isEmployeeView = isEmployee(userRole);
-
-    // For employee users, resolve their schedule name by matching:
-    // User.email → BranchStaff.email → BranchStaff.nickname → Employee.name
-    // Also try substring matching for name variations (e.g. "IRDIENA" contains "Diena")
-    let employeeFilterNames: string[] = [];
-    if (isEmployeeView && sessionUser?.email) {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: sessionUser.email },
-        select: { name: true, branchName: true },
-      });
-
-      const branchStaffMatch = await prisma.branchStaff.findFirst({
-        where: { email: { equals: sessionUser.email, mode: "insensitive" } },
-        select: { name: true, nickname: true },
-      });
-
-      // Collect all name candidates from User and BranchStaff
-      const candidates = new Set<string>();
-      if (branchStaffMatch?.nickname) candidates.add(branchStaffMatch.nickname.toLowerCase().trim());
-      if (branchStaffMatch?.name) candidates.add(branchStaffMatch.name.toLowerCase().trim());
-      if (dbUser?.name) candidates.add(dbUser.name.toLowerCase().trim());
-      if (dbUser?.branchName) candidates.add(dbUser.branchName.toLowerCase().trim());
-
-      // Also find Employee names that are substrings of our candidates or vice versa
-      // This handles cases like BranchStaff nickname "IRDIENA" → Employee name "Diena"
-      const allEmps = await prisma.employee.findMany({
-        select: { name: true, nickname: true },
-      });
-      const candidateArr = Array.from(candidates);
-      allEmps.forEach((emp) => {
-        const empName = emp.name?.toLowerCase().trim();
-        const empNick = emp.nickname?.toLowerCase().trim();
-        if (!empName) return;
-        for (const c of candidateArr) {
-          // Check exact match, substring match, or if full name contains employee name
-          if (c === empName || c === empNick ||
-              c.includes(empName) || empName.includes(c) ||
-              (empNick && (c.includes(empNick) || empNick.includes(c)))) {
-            candidates.add(empName);
-            if (empNick) candidates.add(empNick);
-            break;
-          }
-        }
-      });
-
-      employeeFilterNames = Array.from(candidates);
-    }
 
     if (!month || !/^\d{4}-\d{2}$/.test(month)) {
       return NextResponse.json(
@@ -163,13 +242,12 @@ export async function GET(request: Request) {
       );
     }
 
-    // 1. Fetch all ManpowerSchedule records that overlap with the requested month
     const [year, mon] = month.split("-");
     const monthStart = `${year}-${mon}-01`;
-    const nextMonth = Number(mon) === 12 ? `${Number(year) + 1}-01-01` : `${year}-${String(Number(mon) + 1).padStart(2, "0")}-01`;
+    const nextMonth = Number(mon) === 12
+      ? `${Number(year) + 1}-01-01`
+      : `${year}-${String(Number(mon) + 1).padStart(2, "0")}-01`;
 
-    // Only fetch schedules that start within the requested month.
-    // Days that spill into the next month are filtered out in step 3.
     const schedules = await prisma.manpowerSchedule.findMany({
       where: {
         startDate: { gte: monthStart, lt: nextMonth },
@@ -178,102 +256,37 @@ export async function GET(request: Request) {
       orderBy: { startDate: "asc" },
     });
 
-    // 2. Fetch Employee table (this is where schedule names come from)
-    // The `position` field stores the role (e.g. "PT - COACH", "FT - COACH", "Branch Manager")
-    const allEmployees = await prisma.employee.findMany({
-      select: { name: true, nickname: true, branch: true, position: true, CoachRate: true },
+    // Source of truth: BranchStaff table only.
+    const allStaff: StaffRecord[] = await prisma.branchStaff.findMany({
+      select: {
+        id: true,
+        name: true,
+        nickname: true,
+        branch: true,
+        position: true,
+        role: true,
+        employment_type: true,
+        rate: true,
+        email: true,
+      },
     });
 
-    // Also fetch BranchStaff to map full names (e.g. "VARSHNI A/P GUNASHAKAR") → nickname ("Varshni")
-    // Old schedules may have saved full names from BranchStaff, while newer ones use Employee.name
-    const allBranchStaff = await prisma.branchStaff.findMany({
-      select: { name: true, nickname: true, branch: true },
-    });
+    const resolveStaff = buildStaffResolver(allStaff);
 
-    // Build Employee lookup by name+branch (position and CoachRate from Employee table)
-    // Also build a name normalization map so all name variants merge into the Employee.name
-    // All keys are lowercased to avoid case-sensitive mismatches
-    const employeeLookup: Record<string, { position: string | null; CoachRate: number | null; displayName: string; displayBranch: string }> = {};
-    const nameNormalize: Record<string, string> = {};
-    allEmployees.forEach((e) => {
-      if (e.name && e.branch) {
-        const key = `${e.name.toLowerCase()}:::${e.branch.toLowerCase()}`;
-        employeeLookup[key] = {
-          position: e.position,
-          CoachRate: e.CoachRate ? Number(e.CoachRate) : null,
-          displayName: e.name,
-          displayBranch: e.branch,
-        };
-        nameNormalize[key] = key;
-      }
-      if (e.nickname && e.branch && e.nickname !== e.name) {
-        const nickKey = `${e.nickname.toLowerCase()}:::${e.branch.toLowerCase()}`;
-        employeeLookup[nickKey] = {
-          position: e.position,
-          CoachRate: e.CoachRate ? Number(e.CoachRate) : null,
-          displayName: e.name || e.nickname,
-          displayBranch: e.branch,
-        };
-        if (e.name) {
-          nameNormalize[nickKey] = `${e.name.toLowerCase()}:::${e.branch.toLowerCase()}`;
-        }
-      }
-    });
+    // Resolve the logged-in employee (if any) to a single BranchStaff id, so we
+    // can filter the final results to that one person. Fail closed: if we can't
+    // resolve, return nothing for an employee user.
+    let loggedInStaffId: number | null = null;
+    if (isEmployeeView) {
+      const me = resolveLoggedInStaff(
+        allStaff,
+        sessionUser?.email,
+        sessionUser?.name,
+        sessionUser?.branchName,
+      );
+      loggedInStaffId = me?.id ?? null;
+    }
 
-    // Map BranchStaff full names → Employee.name via matching nickname (case-insensitive).
-    // BranchStaff uses abbreviated branch codes (e.g. "KLG") while Employee uses full names ("Klang"),
-    // so we match by nickname only, then pair with Employee's branch.
-    allBranchStaff.forEach((bs) => {
-      if (bs.name && bs.nickname) {
-        const bsNickLower = bs.nickname.toLowerCase();
-        const emp = allEmployees.find(
-          (e) => e.name?.toLowerCase() === bsNickLower || e.nickname?.toLowerCase() === bsNickLower
-        );
-        if (emp?.name && emp.branch) {
-          const fullKey = `${bs.name.toLowerCase()}:::${emp.branch.toLowerCase()}`;
-          if (!nameNormalize[fullKey]) {
-            nameNormalize[fullKey] = `${emp.name.toLowerCase()}:::${emp.branch.toLowerCase()}`;
-          }
-        }
-      }
-    });
-
-    // Also build a name-only lookup (ignoring branch) as a fallback
-    const nameOnlyLookup: Record<string, { position: string | null; CoachRate: number | null }> = {};
-    allEmployees.forEach((e) => {
-      if (e.name) {
-        const nk = e.name.toLowerCase();
-        if (!nameOnlyLookup[nk]) {
-          nameOnlyLookup[nk] = {
-            position: e.position,
-            CoachRate: e.CoachRate ? Number(e.CoachRate) : null,
-          };
-        }
-      }
-    });
-
-    // Resolve a name+branch to its canonical (Employee.name) key
-    const canonicalKey = (name: string, branch: string): string => {
-      const key = `${name.toLowerCase()}:::${branch.toLowerCase()}`;
-      return nameNormalize[key] || key;
-    };
-
-    // Helper to find info for a given name+branch, with fallback to name-only match
-    const findStaffInfo = (name: string, branch: string) => {
-      const key = `${name.toLowerCase()}:::${branch.toLowerCase()}`;
-      const emp = employeeLookup[key];
-      if (emp) {
-        return { position: emp.position || null, rate: emp.CoachRate || null };
-      }
-      // Fallback: match by name only (ignore branch)
-      const nameOnly = nameOnlyLookup[name.toLowerCase()];
-      if (nameOnly) {
-        return { position: nameOnly.position || null, rate: nameOnly.CoachRate || null };
-      }
-      return { position: null, rate: null };
-    };
-
-    // Helper: map day name to actual date within a schedule week
     const dayNameToDate = (dayName: string, startDate: string): string => {
       const dayMap: Record<string, number> = {
         Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
@@ -292,9 +305,6 @@ export async function GET(request: Request) {
       return `${yyyy}-${mm}-${dd}`;
     };
 
-    // 3. Process each schedule and compute hours
-    //    Filter daily entries to only include days within the requested month,
-    //    since a schedule week can span across month boundaries.
     const allEntries: StaffHourEntry[] = [];
 
     schedules.forEach((schedule: any) => {
@@ -305,17 +315,12 @@ export async function GET(request: Request) {
 
       Object.entries(stats).forEach(([name, hours]) => {
         if (hours.totalHrs === 0) return;
-        // Map daily breakdown day names to actual dates, then filter to requested month
         const dailyWithDates = hours.dailyBreakdown
-          .map((d) => ({
-            ...d,
-            date: dayNameToDate(d.day, schedule.startDate),
-          }))
+          .map((d) => ({ ...d, date: dayNameToDate(d.day, schedule.startDate) }))
           .filter((d) => d.date >= monthStart && d.date < nextMonth);
 
         if (dailyWithDates.length === 0) return;
 
-        // Recalculate hours from filtered days only
         const filteredCoachHrs = dailyWithDates.reduce((s, d) => s + d.coachHrs, 0);
         const filteredExecHrs = dailyWithDates.reduce((s, d) => s + d.execHrs, 0);
 
@@ -333,10 +338,13 @@ export async function GET(request: Request) {
       });
     });
 
-    // 4. Aggregate by employee (sum across all weeks in the month)
+    // Aggregate by BranchStaff.id so name variants ("Diena" / "IRDIENA" /
+    // "NUR IRDIENA BATRISYIA BINTI ASMAWI") collapse into one row.
     interface DailyEntry { date: string; day: string; coachHrs: number; execHrs: number; totalHrs: number; scheduleBranch?: string }
 
     const aggregated: Record<string, {
+      key: string;
+      staffId: number | null;
       name: string;
       branch: string;
       rate: number | null;
@@ -351,49 +359,32 @@ export async function GET(request: Request) {
       days: DailyEntry[];
     }> = {};
 
-    // Build a name-only Employee lookup to find home branch
-    const nameToHomeBranch: Record<string, string> = {};
-    allEmployees.forEach((e) => {
-      if (e.name && e.branch) {
-        nameToHomeBranch[e.name.toLowerCase().trim()] = e.branch;
-      }
-      if (e.nickname && e.branch) {
-        nameToHomeBranch[e.nickname.toLowerCase().trim()] = e.branch;
-      }
-    });
-
     allEntries.forEach((entry) => {
-      // First try to find the employee via the schedule branch key
-      const schedKey = canonicalKey(entry.name, entry.branch);
-      const empRecord = employeeLookup[schedKey];
-      const displayName = empRecord?.displayName || entry.name;
+      const staff = resolveStaff(entry.name, entry.branch);
 
-      // Resolve the employee's HOME branch from Employee table (not the schedule branch)
-      const homeBranch = nameToHomeBranch[displayName.toLowerCase().trim()]
-        || nameToHomeBranch[entry.name.toLowerCase().trim()]
-        || empRecord?.displayBranch
-        || entry.branch;
+      // Aggregation key: BranchStaff.id when resolved, otherwise raw name+branch.
+      // Unresolved entries (slot value with no matching staff record) get their
+      // own bucket so they remain visible rather than silently merging.
+      const key = staff ? `staff:${staff.id}` : `raw:${norm(entry.name)}:::${norm(entry.branch)}`;
 
-      // Use home branch as the canonical key so replacements aggregate under home branch
-      const homeKey = canonicalKey(displayName, homeBranch);
+      // When matched, always show the BranchStaff full name and the friendly
+      // branch label. BranchStaff.branch may be a short code ("RBY") — route
+      // it through normalizeLocation so the UI displays "Bandar Rimbayu".
+      const displayName = staff?.name || entry.name;
+      const rawBranch = staff?.branch || entry.branch;
+      const homeBranch = normalizeLocation(rawBranch) || rawBranch;
+      const rate = staff?.rate ? parseFloat(staff.rate) || null : null;
+      const position = staff?.position || staff?.role || null;
+      const employmentType = staff?.employment_type || position;
 
-      // Look up staff info by home branch first, then schedule branch as fallback
-      const homeInfo = findStaffInfo(displayName, homeBranch);
-      const schedInfo = findStaffInfo(entry.name, entry.branch);
-      const staffInfo = {
-        position: homeInfo.position || schedInfo.position,
-        rate: homeInfo.rate || schedInfo.rate,
-      };
-
-      if (!aggregated[homeKey]) {
-        const rate = staffInfo.rate || null;
-        const position = staffInfo.position || null;
-
-        aggregated[homeKey] = {
+      if (!aggregated[key]) {
+        aggregated[key] = {
+          key,
+          staffId: staff?.id ?? null,
           name: displayName,
           branch: homeBranch,
           rate,
-          employmentType: position,
+          employmentType,
           position,
           coachHrs: 0,
           execHrs: 0,
@@ -405,33 +396,39 @@ export async function GET(request: Request) {
         };
       }
 
-      aggregated[homeKey].coachHrs += entry.coachHrs;
-      aggregated[homeKey].execHrs += entry.execHrs;
-      aggregated[homeKey].totalHrs += entry.totalHrs;
+      const bucket = aggregated[key];
+      bucket.coachHrs += entry.coachHrs;
+      bucket.execHrs += entry.execHrs;
+      bucket.totalHrs += entry.totalHrs;
 
-      // Add daily entries with scheduleBranch so the UI can show replacement notes
+      // Mark a day as a "replacement" only when the schedule branch is
+      // genuinely different from the staff's home branch. Compare via
+      // branchesMatch so "RBY" vs "Rimbayu" doesn't get tagged as a swap.
       const scheduleBranch = entry.branch;
+      const isReplacement = !branchesMatch(scheduleBranch, bucket.branch);
       entry.dailyBreakdown.forEach((d: any) => {
-        aggregated[homeKey].days.push({
+        bucket.days.push({
           date: d.date,
           day: d.day,
           coachHrs: d.coachHrs,
           execHrs: d.execHrs,
           totalHrs: d.totalHrs,
-          scheduleBranch: scheduleBranch !== homeBranch ? scheduleBranch : undefined,
+          scheduleBranch: isReplacement ? scheduleBranch : undefined,
         });
       });
     });
 
-    // Sort each employee's days by date
     Object.values(aggregated).forEach((emp) => {
       emp.days.sort((a, b) => a.date.localeCompare(b.date));
     });
 
-    // 5. Determine PT/FT and calculate pay, exclude Branch Managers
     const results = Object.values(aggregated)
       .filter((emp) => {
-        // Exclude branch managers, interns, and training staff
+        // Apply exclusion based on the resolved staff record when available.
+        if (emp.staffId !== null) {
+          const staff = allStaff.find((s) => s.id === emp.staffId);
+          if (staff && shouldExcludeStaff(staff)) return false;
+        }
         const pos = (emp.position || "").toUpperCase();
         const name = (emp.name || "").toUpperCase();
         if (pos.includes("BRANCH MANAGER")) return false;
@@ -440,11 +437,15 @@ export async function GET(request: Request) {
         return true;
       })
       .map((emp) => {
-        // Determine PT by checking role/position/employment_type for "PT" prefix
-        const roleStr = (emp.employmentType || emp.position || "").toUpperCase();
-        const isPT = roleStr.startsWith("PT") || roleStr.includes("PT -") || roleStr.includes("PART-TIME") || roleStr.includes("PART TIME");
+        const staff = emp.staffId !== null ? allStaff.find((s) => s.id === emp.staffId) : null;
+        const isPT = staff
+          ? isPartTimeStaff(staff)
+          : (() => {
+              const roleStr = (emp.employmentType || emp.position || "").toUpperCase();
+              return roleStr.startsWith("PT") || roleStr.includes("PT -") ||
+                     roleStr.includes("PART-TIME") || roleStr.includes("PART TIME");
+            })();
 
-        // PT coaches: calculate pay (use rate if available, otherwise 0 for pay but still flag as PT)
         const hasRate = emp.rate !== null && emp.rate > 0;
         const coachPay = isPT && hasRate ? emp.coachHrs * (emp.rate || 0) : 0;
         const execPay = isPT && hasRate ? emp.execHrs * EXECUTIVE_RATE : 0;
@@ -458,27 +459,21 @@ export async function GET(request: Request) {
         };
       });
 
-    // For employee users, filter to only their own data (case-insensitive name match).
-    // Fail closed: if we couldn't resolve any identifier for this employee, they see
-    // nothing — never the full cost dataset. Previously this fell through to the
-    // unfiltered results when `employeeFilterNames` was empty.
+    // Employee self-view: filter to just the logged-in person's row by
+    // BranchStaff.id. Fail closed if we couldn't resolve them.
     if (isEmployeeView) {
-      const filtered = employeeFilterNames.length === 0
+      const filtered = loggedInStaffId === null
         ? []
-        : results.filter((r) =>
-            employeeFilterNames.some((n) => r.name.toLowerCase().trim() === n)
-          );
+        : results.filter((r) => r.staffId === loggedInStaffId);
       results.length = 0;
       results.push(...filtered);
     }
 
-    // Sort: PT first (they have cost), then FT, then by name
     results.sort((a, b) => {
       if (a.isPT !== b.isPT) return a.isPT ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 
-    // 6. Compute totals
     const ptResults = results.filter((r) => r.isPT);
     const ftResults = results.filter((r) => !r.isPT);
 
@@ -495,7 +490,6 @@ export async function GET(request: Request) {
       executiveRate: EXECUTIVE_RATE,
     };
 
-    // Build available weeks list from schedules
     const weeksSet = new Set<string>();
     schedules.forEach((s: any) => {
       weeksSet.add(`${s.startDate}:::${s.endDate}`);

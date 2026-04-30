@@ -371,7 +371,11 @@ export default function ManpowerCostReportPage() {
     })
     .filter((s): s is StaffEntry => {
       if (!s) return false;
-      if (isEmployee && employeeName && s.name.trim().toLowerCase() !== employeeName.trim().toLowerCase()) return false;
+      // Employee self-view filtering happens server-side (in /api/manpower-cost),
+      // which resolves the logged-in user to a BranchStaff record by email and
+      // returns only their row. No client-side name match is needed — and one
+      // here would actually break, because the server returns the BranchStaff
+      // full name while session.branchName is usually a short form.
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!s.name.toLowerCase().includes(q) && !s.branch.toLowerCase().includes(q)) return false;
@@ -670,6 +674,7 @@ export default function ManpowerCostReportPage() {
                               <th className="px-3 py-3 text-indigo-400 text-center">Exec Hr</th>
                               <th className="px-3 py-3 text-indigo-400 text-center">Rate</th>
                               <th className="px-3 py-3 text-indigo-500 text-center">Total</th>
+                              <th className="px-3 py-3 text-blue-400 text-center">Total Hr</th>
                               <th className="px-3 py-3 text-green-600 text-right">Total Pay</th>
                             </tr>
                           ) : (
@@ -730,6 +735,9 @@ export default function ManpowerCostReportPage() {
                                 <td className="px-3 py-2 text-center text-xs font-bold">
                                   <span className={worked && execPayDay > 0 ? "text-indigo-700" : "text-slate-300"}>{worked && execPayDay > 0 ? `RM ${execPayDay.toFixed(2)}` : "-"}</span>
                                 </td>
+                                <td className="px-3 py-2 text-center text-xs font-black">
+                                  <span className={worked ? "text-blue-600" : "text-slate-300"}>{worked ? fmtHrs(entry.totalHrs) : "-"}</span>
+                                </td>
                                 <td className="px-3 py-2 text-right text-xs font-black">
                                   <span className={worked ? "text-green-600" : "text-slate-300"}>{worked ? `RM ${dayPay.toFixed(2)}` : "-"}</span>
                                 </td>
@@ -775,6 +783,7 @@ export default function ManpowerCostReportPage() {
                               <td className="px-3 py-3 text-center text-xs font-black text-indigo-300">{fmtHrs(s.execHrs)}</td>
                               <td className="px-3 py-3"></td>
                               <td className="px-3 py-3 text-center text-xs font-black text-indigo-300">RM {s.execPay.toFixed(2)}</td>
+                              <td className="px-3 py-3 text-center text-xs font-black text-blue-300">{fmtHrs(s.totalHrs)}</td>
                               <td className="px-3 py-3 text-right text-sm font-black text-green-400">RM {s.totalPay.toFixed(2)}</td>
                             </tr>
                           ) : (
