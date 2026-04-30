@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { BRANCH_OPTIONS, ROLE_OPTIONS, CONTRACT_OPTIONS, GENDER_OPTIONS, ROLE_CODES } from "@/lib/constants";
-import { isSuperAdmin } from "@/lib/roles";
+import { isAdmin } from "@/lib/roles";
 import EmployeeIdInput from "@/app/components/EmployeeIdInput";
 import { splitEmployeeId, composeEmployeeId, isValidSuffix, isValidEmployeeId } from "@/lib/employeeId";
 
@@ -63,7 +63,7 @@ function hasUnrecognizedPrefix(employeeId: string | undefined): boolean {
 }
 
 // Defaults to "" so that a caller forgetting to pass userRole fails closed
-// via `isSuperAdmin("") === false`, rather than silently granting admin access.
+// via `isAdmin("") === false`, rather than silently granting admin access.
 export default function UserManagement({ userRole = "" }: UserManagementProps) {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
@@ -80,7 +80,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
   const searchParams = useSearchParams();
   const targetEmployeeId = searchParams.get("employeeId");
 
-  const isAuthorized = isSuperAdmin(userRole);
+  const isAuthorized = isAdmin(userRole);
 
   useEffect(() => {
     if (!isAuthorized) { setLoading(false); return; }
