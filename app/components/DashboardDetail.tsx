@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { isHR } from "@/lib/roles";
+import { isHR, isAcademy } from "@/lib/roles";
 
 interface DashboardCard {
   id: string;
@@ -116,11 +116,12 @@ export default function DashboardDetail({ id }: DashboardDetailProps) {
   const router = useRouter();
   const { data: session } = useSession();
   const userIsHR = isHR((session?.user as { role?: unknown } | undefined)?.role);
+  const userIsAcademy = isAcademy((session?.user as { role?: unknown } | undefined)?.role);
   const dashboard = dashboards.find((d) => d.id === id);
 
-  // For HR users on the HRMS hub, allow only the Employee Dashboard card.
+  // For HR and Academy users on the HRMS hub, allow only the Employee Dashboard card.
   const isItemEnabled = (href: string) =>
-    !(userIsHR && id === "hrms" && href !== "/dashboard-employee-management");
+    !((userIsHR || userIsAcademy) && id === "hrms" && href !== "/dashboard-employee-management");
 
   if (!dashboard) {
     return (
