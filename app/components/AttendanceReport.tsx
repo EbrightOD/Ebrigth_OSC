@@ -2,8 +2,15 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import {
+  ArrowLeft, MapPin, Calendar, User, Briefcase, Building2, Hash,
+  CheckCircle2, AlertCircle, RefreshCw, Loader2, Users, CalendarX, Timer,
+} from "lucide-react";
 
 import Sidebar from "./Sidebar";
+import StatCard from "./ui/StatCard";
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "./ui/Tooltip";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,7 +25,7 @@ interface BranchStaffMember {
 }
 
 interface LogEntry {
-  date: string;        // "YYYY-MM-DD"
+  date: string;
   empName: string;
   clockInTime: string | null;
   clockOutTime: string | null;
@@ -26,8 +33,8 @@ interface LogEntry {
 
 interface DayRow {
   no: number;
-  date: string;        // "YYYY-MM-DD"
-  dayLabel: string;    // "Mon"
+  date: string;
+  dayLabel: string;
   clockIn: string | null;
   clockOut: string | null;
   hoursWorked: number | null;
@@ -40,7 +47,6 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["January","February","March","April","May","June",
                 "July","August","September","October","November","December"];
 
-// Parse "YYYY-MM-DD" without timezone drift by using UTC
 function parseDateUTC(dateStr: string): Date {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -52,10 +58,9 @@ function dayLabel(dateStr: string): string {
 
 function isWeekend(dateStr: string): boolean {
   const d = parseDateUTC(dateStr).getUTCDay();
-  return d === 0 || d === 1; // Sunday=0, Monday=1 are off days; working days are Tue–Sat
+  return d === 0 || d === 1;
 }
 
-// Parse "HH:mm:ss" → total minutes
 function parseTimeToMinutes(t: string | null): number | null {
   if (!t) return null;
   const parts = t.split(":");
@@ -70,7 +75,7 @@ function minutesToHours(mins: number): string {
 }
 
 function getDaysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate(); // month is 1-based here
+  return new Date(year, month, 0).getDate();
 }
 
 function padDate(n: number): string {
@@ -84,10 +89,9 @@ export default function AttendanceReport() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const now = new Date();
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1); // 1-based
+  const [selectedYear, setSelectedYear]   = useState(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
 
-  // ── Branch / Location state ────────────────────────────────────────────────
   const [locations, setLocations] = useState<string[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>("");
   const [staff, setStaff] = useState<BranchStaffMember[]>([]);
@@ -96,7 +100,6 @@ export default function AttendanceReport() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Load distinct locations once
   useEffect(() => {
     fetch("/api/branch-locations")
       .then(r => r.json())
@@ -108,7 +111,6 @@ export default function AttendanceReport() {
       .catch(console.error);
   }, []);
 
-  // Load staff when location changes
   useEffect(() => {
     if (!selectedLocation) return;
     fetch(`/api/branch-locations?location=${encodeURIComponent(selectedLocation)}`)
@@ -124,14 +126,23 @@ export default function AttendanceReport() {
 
   const selectedStaff = staff.find(s => s.id === selectedStaffId) ?? null;
 
-  // Fetch logs when employee or month/year changes
+  // ── Part A — bug fix: prefer stable empNo over fragile name-token search ──
   const fetchLogs = useCallback(async () => {
-    if (!selectedStaff?.name) return;
+    if (!selectedStaff) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/attendance-logs?staffName=${encodeURIComponent(selectedStaff.name)}&month=${selectedMonth}&year=${selectedYear}`
-      );
+      const params = new URLSearchParams({
+        month: String(selectedMonth),
+        year:  String(selectedYear),
+      });
+      if (selectedStaff.employeeId) {
+        params.set("empNo", selectedStaff.employeeId);
+      } else if (selectedStaff.name) {
+        params.set("staffName", selectedStaff.name);
+      } else {
+        setLogs([]); setLoading(false); return;
+      }
+      const res = await fetch(`/api/attendance-logs?${params.toString()}`);
       const data: LogEntry[] = await res.json();
       setLogs(Array.isArray(data) ? data : []);
     } catch {
@@ -141,11 +152,9 @@ export default function AttendanceReport() {
     }
   }, [selectedStaff, selectedMonth, selectedYear]);
 
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+  useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
-  // ── Build day rows for entire month (all 30/31 days) ────────────────────────
+  // ── Build day rows for entire month ────────────────────────────────────────
   const rows: DayRow[] = [];
   const totalDays = getDaysInMonth(selectedYear, selectedMonth);
 
@@ -175,244 +184,295 @@ export default function AttendanceReport() {
   }
 
   const presentCount = rows.filter(r => r.attendance === "Present").length;
-  const noDataCount = rows.filter(r => r.attendance === "No Data").length;
+  const noDataCount  = rows.filter(r => r.attendance === "No Data").length;
+  const weekendCount = rows.filter(r => r.attendance === "Weekend").length;
   const totalMinutes = rows.reduce((sum, r) => sum + (r.hoursWorked ?? 0), 0);
 
-  // Years for selector
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i);
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="flex min-h-screen bg-blue-50">
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/50 to-indigo-50/30">
+      <TooltipProvider delayDuration={150}>
       <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
-      <div className="flex-1">
-        {/* Header */}
-        <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 py-6 flex items-center gap-4 flex-wrap">
-            <button onClick={() => router.back()} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">
-              ← Back
-            </button>
-            <h1 className="text-3xl font-bold text-blue-800">Attendance Report</h1>
+
+      <div className="flex-1 flex flex-col">
+        {/* ── Header ── */}
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <button onClick={() => router.back()}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                  <ArrowLeft className="w-4 h-4" /> Back
+                </button>
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Attendance Report</h1>
+                  <p className="text-sm text-gray-500 mt-0.5">Monthly attendance breakdown · Pulled live from scanner logs</p>
+                </div>
+              </div>
+              {loading && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border bg-blue-50 text-blue-700 border-blue-200">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Loading…
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <main className="max-w-7xl mx-auto px-6 py-8 w-full">
+          {/* ── Stat Cards ── */}
+          <motion.div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+          >
+            <StatCard
+              label="Days Present"
+              value={presentCount}
+              icon={CheckCircle2}
+              tone="green"
+              tooltip={`Working days the employee scanned in during ${MONTHS[selectedMonth - 1]} ${selectedYear}.`}
+            />
+            <StatCard
+              label="No Record"
+              value={noDataCount}
+              icon={CalendarX}
+              tone="red"
+              tooltip="Working days with no scanner record. May indicate leave, sick day, or a missed scan."
+            />
+            <StatCard
+              label="Weekend Days"
+              value={weekendCount}
+              icon={Calendar}
+              tone="blue"
+              tooltip="Sundays and Mondays in this month — counted as off-days."
+            />
+            <StatCard
+              label="Total Hours"
+              value={Math.round(totalMinutes / 60)}
+              icon={Timer}
+              tone="orange"
+              subtitle={totalMinutes > 0 ? minutesToHours(totalMinutes) : "—"}
+              tooltip="Sum of all clock-in to clock-out durations this month."
+            />
+          </motion.div>
 
-            {/* ── Employee Info Card ── */}
-            <div className="bg-white rounded-xl shadow-md p-6 space-y-5">
-              <h2 className="text-lg font-bold text-gray-800">Employee</h2>
-
-              {/* Branch / Location dropdown */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Branch</label>
-                <select
-                  value={selectedLocation}
-                  onChange={e => setSelectedLocation(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {locations.map(loc => (
-                    <option key={loc} value={loc}>{loc}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Employee dropdown — filtered to selected branch */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Name</label>
-                <select
-                  value={selectedStaffId ?? ""}
-                  onChange={e => setSelectedStaffId(Number(e.target.value))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {staff.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedStaff && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Department</label>
-                    <p className="text-sm font-medium text-gray-800">{selectedStaff.department || "—"}</p>
+          {/* ── Two-column body: filter card + table card ── */}
+          <motion.div
+            className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut", delay: 0.1 }}
+          >
+            <div className="lg:col-span-4">
+              {/* Filter card */}
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden sticky top-6">
+                <div className="px-5 py-4 border-b border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-1 h-6 bg-blue-500 rounded-full" />
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">Employee</h2>
+                      <p className="text-xs text-gray-500 mt-0.5">Pick the staff member and period</p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Role</label>
-                    <p className="text-sm font-medium text-gray-800">{selectedStaff.role || "—"}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Location</label>
-                    <p className="text-xs text-gray-400">{selectedStaff.location || "—"}</p>
-                  </div>
-                </>
-              )}
-
-              {/* Month selector */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Month</label>
-                <select
-                  value={selectedMonth}
-                  onChange={e => setSelectedMonth(Number(e.target.value))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {MONTHS.map((m, i) => (
-                    <option key={m} value={i + 1}>{m}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Year selector */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Year</label>
-                <select
-                  value={selectedYear}
-                  onChange={e => setSelectedYear(Number(e.target.value))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {years.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Summary stats */}
-              <div className="pt-4 border-t border-gray-100 space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 font-semibold uppercase">Days Present</span>
-                  <span className="text-sm font-bold text-green-600">{presentCount}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 font-semibold uppercase">No Record</span>
-                  <span className="text-sm font-bold text-gray-400">{noDataCount}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500 font-semibold uppercase">Total Hours</span>
-                  <span className="text-sm font-bold text-blue-600">
-                    {totalMinutes > 0 ? minutesToHours(totalMinutes) : "—"}
-                  </span>
+
+                <div className="p-5 space-y-4">
+                  {/* Branch */}
+                  <div>
+                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                      <MapPin className="w-3 h-3" /> Branch
+                    </label>
+                    <select value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none transition-all cursor-pointer">
+                      {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Name */}
+                  <div>
+                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                      <User className="w-3 h-3" /> Name
+                    </label>
+                    <select value={selectedStaffId ?? ""} onChange={e => setSelectedStaffId(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none transition-all cursor-pointer">
+                      {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Read-only details */}
+                  {selectedStaff && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-[11px] text-gray-500"><Hash className="w-3 h-3" /> Employee ID</span>
+                        <span className="text-xs font-mono font-semibold text-gray-800">{selectedStaff.employeeId || "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-[11px] text-gray-500"><Building2 className="w-3 h-3" /> Department</span>
+                        <span className="text-xs font-medium text-gray-800 truncate">{selectedStaff.department || "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-[11px] text-gray-500"><Briefcase className="w-3 h-3" /> Role</span>
+                        <span className="text-xs font-medium text-gray-800 truncate">{selectedStaff.role || "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-[11px] text-gray-500"><MapPin className="w-3 h-3" /> Location</span>
+                        <span className="text-xs font-medium text-gray-800">{selectedStaff.location || "—"}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Period */}
+                  <div className="pt-3 border-t border-gray-200">
+                    <label className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                      <Calendar className="w-3 h-3" /> Period
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))}
+                        className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none transition-all cursor-pointer">
+                        {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                      </select>
+                      <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}
+                        className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 focus:outline-none transition-all cursor-pointer">
+                        {years.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* ── Attendance Table ── */}
-            <div className="lg:col-span-3">
-              <div className="bg-white rounded-xl shadow-md overflow-hidden">
+            <div className="lg:col-span-8">
+              {/* Table card */}
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-gray-800">
-                    {MONTHS[selectedMonth - 1]} {selectedYear}
-                    {selectedStaff && <span className="ml-2 text-gray-400 font-normal text-base">— {selectedStaff.name}</span>}
-                  </h2>
-                  {loading && (
-                    <span className="text-xs text-gray-400 animate-pulse">Loading…</span>
-                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="w-1 h-6 bg-blue-500 rounded-full" />
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">{MONTHS[selectedMonth - 1]} {selectedYear}</h2>
+                      <p className="text-xs text-gray-500 mt-0.5">{selectedStaff?.name ?? "Select an employee"}</p>
+                    </div>
+                  </div>
+                  <button onClick={fetchLogs}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+                  </button>
                 </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="bg-blue-600 text-white">
-                        <th className="px-3 py-3 text-left text-xs font-semibold">No.</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold">Day</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold">Date</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold">Clock In</th>
-                        <th className="px-3 py-3 text-left text-xs font-semibold">Clock Out</th>
-                        <th className="px-3 py-3 text-center text-xs font-semibold">Duration</th>
-                        <th className="px-3 py-3 text-center text-xs font-semibold">Status</th>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">No.</th>
+                        <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Day</th>
+                        <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                        <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Clock In</th>
+                        <th className="px-3 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Clock Out</th>
+                        <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Duration</th>
+                        <th className="px-3 py-3 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.length === 0 && !loading ? (
                         <tr>
-                          <td colSpan={7} className="px-4 py-16 text-center text-gray-400 text-sm">
-                            {staff.length === 0
-                              ? "Select a branch to load employees…"
-                              : "No working days in this period."}
+                          <td colSpan={7} className="px-4 py-16">
+                            <div className="flex flex-col items-center gap-3 text-center">
+                              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                                <Users className="w-5 h-5 text-gray-400" />
+                              </div>
+                              <p className="text-sm font-medium text-gray-700">
+                                {staff.length === 0
+                                  ? "Select a branch to load employees…"
+                                  : "No working days in this period."}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       ) : (
                         rows.map(row => {
                           const isWeekendRow = row.attendance === "Weekend";
+                          const isNoData     = row.attendance === "No Data";
+                          const isToday      = row.date === todayStr;
                           return (
-                            <tr
-                              key={row.date}
-                              className={`border-b border-gray-100 transition-colors ${
-                                isWeekendRow
-                                  ? "bg-gray-50"
-                                  : row.attendance === "No Data"
-                                  ? "opacity-60 hover:bg-gray-50"
-                                  : "hover:bg-blue-50"
-                              }`}
-                            >
-                              <td className="px-3 py-2 text-sm text-gray-400">{row.no}</td>
-                              <td className={`px-3 py-2 text-sm font-semibold ${isWeekendRow ? "text-gray-400" : "text-blue-600"}`}>
-                                {row.dayLabel}
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-700">
-                                {row.date.split("-").reverse().join("/")}
-                              </td>
-                              <td className="px-3 py-2 text-sm font-mono font-semibold text-green-700">
-                                {row.clockIn ?? <span className="text-gray-300 font-normal">—</span>}
-                              </td>
-                              <td className="px-3 py-2 text-sm font-mono font-semibold text-orange-600">
-                                {row.clockOut ?? <span className="text-gray-300 font-normal">—</span>}
-                              </td>
-                              <td className="px-3 py-2 text-sm text-center text-gray-700">
-                                {row.hoursWorked !== null
-                                  ? minutesToHours(row.hoursWorked)
-                                  : <span className="text-gray-300">—</span>}
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                {isWeekendRow ? (
-                                  <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-400">
-                                    Weekend
-                                  </span>
-                                ) : row.attendance === "Present" ? (
-                                  <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                    Present
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-400">
-                                    No Record
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
+                            <Tooltip key={row.date}>
+                              <TooltipTrigger asChild>
+                                <tr className={`border-b border-gray-100 transition-colors cursor-default ${
+                                  isToday      ? "bg-blue-50/50 border-l-2 border-l-blue-400" :
+                                  isWeekendRow ? "bg-gray-50/50" :
+                                  isNoData     ? "hover:bg-rose-50/30" :
+                                                 "hover:bg-blue-50/40"
+                                }`}>
+                                  <td className="px-3 py-3 text-xs font-mono text-gray-400">{row.no}</td>
+                                  <td className={`px-3 py-3 text-sm font-semibold ${isWeekendRow ? "text-gray-400" : "text-blue-600"}`}>{row.dayLabel}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-700">{row.date.split("-").reverse().join("/")}</td>
+                                  <td className="px-3 py-3 text-sm font-mono font-semibold text-green-700">
+                                    {row.clockIn ?? <span className="text-gray-300 font-normal">—</span>}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm font-mono font-semibold text-orange-600">
+                                    {row.clockOut ?? <span className="text-gray-300 font-normal">—</span>}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm text-center text-gray-700">
+                                    {row.hoursWorked !== null ? minutesToHours(row.hoursWorked) : <span className="text-gray-300">—</span>}
+                                  </td>
+                                  <td className="px-3 py-3 text-center">
+                                    {isWeekendRow ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500 ring-1 ring-gray-200">
+                                        <Calendar className="w-3 h-3" /> Weekend
+                                      </span>
+                                    ) : row.attendance === "Present" ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-green-50 text-green-700 ring-1 ring-green-200">
+                                        <CheckCircle2 className="w-3 h-3" /> Present
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 ring-1 ring-rose-200">
+                                        <AlertCircle className="w-3 h-3" /> No Record
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" align="center" className="!max-w-[260px]">
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-3 pb-1.5 border-b border-gray-100">
+                                    <span className="text-sm font-semibold text-gray-900">{row.dayLabel}, {row.date.split("-").reverse().join("/")}</span>
+                                    {isToday && <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide">Today</span>}
+                                  </div>
+                                  <div className="grid grid-cols-[80px_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+                                    <span className="text-gray-500">Clock in</span>
+                                    <span className="font-mono font-medium text-green-700">{row.clockIn ?? "—"}</span>
+                                    <span className="text-gray-500">Clock out</span>
+                                    <span className="font-mono font-medium text-orange-600">{row.clockOut ?? "—"}</span>
+                                    <span className="text-gray-500">Duration</span>
+                                    <span className="font-medium text-gray-800">{row.hoursWorked !== null ? minutesToHours(row.hoursWorked) : "—"}</span>
+                                    <span className="text-gray-500">Status</span>
+                                    <span className={`font-semibold ${
+                                      row.attendance === "Present" ? "text-green-700" :
+                                      row.attendance === "Weekend" ? "text-gray-500" :
+                                                                      "text-rose-700"
+                                    }`}>{row.attendance === "No Data" ? "No Record" : row.attendance}</span>
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
                           );
                         })
                       )}
                     </tbody>
                   </table>
                 </div>
-
-                {/* Footer summary */}
-                <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase">Days Present</p>
-                      <p className="text-2xl font-bold text-green-600">{presentCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase">No Record</p>
-                      <p className="text-2xl font-bold text-gray-400">{noDataCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase">Total Hours</p>
-                      <p className="text-2xl font-bold text-blue-600">
-                        {totalMinutes > 0 ? minutesToHours(totalMinutes) : "—"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
 
-              {/* Info note */}
-              <p className="mt-4 text-xs text-gray-400 text-center">
+              <p className="mt-3 text-[11px] text-gray-400 text-center">
                 Data is pulled live from the thumbprint scanner logs · Sun &amp; Mon are off days · Hours calculated from clock-in to clock-out
               </p>
             </div>
-          </div>
+          </motion.div>
         </main>
       </div>
+      </TooltipProvider>
     </div>
   );
 }

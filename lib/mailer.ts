@@ -1,17 +1,106 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type SendMailOptions } from 'nodemailer';
 
+// Gmail throttles when the same account performs many fresh logins in a short
+// window ("454-4.7.0 Too many login attempts"). Pooling reuses a single
+// authenticated connection across all sends, and the rate limiter prevents
+// burst sends during scanner-sync retry catch-up loops.
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT) || 465,
-  secure: true, // port 465 = SSL
+  secure: false,           // port 587 = STARTTLS
+  pool: true,              // keep the SMTP connection open
+  maxConnections: 1,       // Gmail prefers a single connection per account
+  maxMessages: 100,        // re-auth after 100 messages (well under Gmail's daily cap)
+  rateDelta: 1000,         // window for rateLimit, in ms
+  rateLimit: 3,            // max 3 messages per second — safe for Gmail
+  // Fast timeouts: a single bad email must not block the scanner-sync loop
+  // for 30+ seconds. With these, a connection failure surfaces in <=5s and
+  // immediately trips the cooldown (see safeSend below) so subsequent retries
+  // bail instantly instead of each waiting for their own timeout.
+  connectionTimeout: 5_000,  // TCP connect must complete within 5s
+  greetingTimeout:   5_000,  // SMTP greeting must arrive within 5s
+  socketTimeout:    10_000,  // overall send must complete within 10s
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
 });
 
+// ─── Cooldown circuit breaker ────────────────────────────────────────────────
+// Once any send returns a Gmail rate-limit / auth failure, ALL further sends
+// bail instantly for COOLDOWN_MS without touching Gmail. This stops the
+// scanner-sync retry loop from re-hammering the account every 10s, which is
+// what keeps the lockout going. Caller treats a cooldown skip as a failure
+// (clockInEmailSent stays false), so the email naturally retries after cooldown.
+const COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+let cooldownUntil = 0;
+let cooldownLogged = false;
+
+function isRateLimitOrAuthError(err: unknown): boolean {
+  const e = err as { code?: string; responseCode?: number; message?: string };
+  // Auth / rate-limit errors from Gmail
+  if (e?.code === 'EAUTH') return true;
+  if (e?.responseCode === 454 || e?.responseCode === 535) return true;
+  // Network errors — also trip cooldown so we don't burn 30s per retry
+  // when the SMTP host is unreachable / slow / refusing connections.
+  if (
+    e?.code === 'ETIMEDOUT' ||
+    e?.code === 'ECONNECTION' ||
+    e?.code === 'ECONNREFUSED' ||
+    e?.code === 'ECONNRESET' ||
+    e?.code === 'ESOCKET'
+  ) return true;
+  const msg = (e?.message ?? '').toLowerCase();
+  return msg.includes('too many login')
+      || msg.includes('invalid login')
+      || msg.includes('454')
+      || msg.includes('etimedout')
+      || msg.includes('econnrefused');
+}
+
+function fmtRemaining(ms: number): string {
+  const s = Math.ceil(ms / 1000);
+  return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+}
+
+async function safeSend(msg: SendMailOptions): Promise<void> {
+  const now = Date.now();
+  if (now < cooldownUntil) {
+    const remaining = cooldownUntil - now;
+    if (!cooldownLogged) {
+      console.warn(`[mailer] ❄ In cooldown for ${fmtRemaining(remaining)} — skipping sends until Gmail unlocks`);
+      cooldownLogged = true;
+    }
+    throw new Error(`mailer in cooldown for ${fmtRemaining(remaining)}`);
+  }
+
+  try {
+    await transporter.sendMail(msg);
+    cooldownLogged = false; // success — reset for next cooldown event
+  } catch (err) {
+    if (isRateLimitOrAuthError(err)) {
+      cooldownUntil = Date.now() + COOLDOWN_MS;
+      cooldownLogged = false;
+      console.error(`[mailer] ✗ Gmail rejected send — entering ${COOLDOWN_MS / 60000}min cooldown`);
+    }
+    throw err;
+  }
+}
+
+// One-time SMTP auth check at module load so the cause of any failure is obvious.
+transporter.verify().then(
+  () => console.log(`[mailer] ✓ SMTP authenticated as ${process.env.SMTP_USER}`),
+  (err: Error) => {
+    console.error(`[mailer] ✗ SMTP auth failed: ${err.message}`);
+    if (isRateLimitOrAuthError(err)) {
+      cooldownUntil = Date.now() + COOLDOWN_MS;
+      console.error(`[mailer] ❄ Entering ${COOLDOWN_MS / 60000}min cooldown — no sends will be attempted`);
+    }
+  },
+);
+
 export async function sendClockInEmail(to: string, name: string, time: string): Promise<void> {
-  await transporter.sendMail({
+  await safeSend({
     from: `"Ebright Attendance" <${process.env.SMTP_USER}>`,
     to,
     subject: `✅ Clock-In Recorded — ${name}`,
@@ -38,7 +127,7 @@ export async function sendClockInEmail(to: string, name: string, time: string): 
 }
 
 export async function sendClockOutEmail(to: string, name: string, time: string): Promise<void> {
-  await transporter.sendMail({
+  await safeSend({
     from: `"Ebright Attendance" <${process.env.SMTP_USER}>`,
     to,
     subject: `🔴 Clock-Out Recorded — ${name}`,
