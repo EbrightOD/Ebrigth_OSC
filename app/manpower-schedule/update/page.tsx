@@ -13,6 +13,7 @@ import {
   getWorkingDaysForBranch, isOpeningClosingSlot,
   isManagerOnDutySlot,
 } from "@/lib/manpowerUtils";
+import { isBranchManager } from "@/lib/roles";
 
 // --- DATE FORMATTING HELPERS ---
 const formatDateString = (dateStr: string) => {
@@ -130,7 +131,7 @@ export default function UpdateSchedulePage() {
   const [drillMonth, setDrillMonth] = useState<number | null>(null);
 
   const fetchStaff = async () => {
-    const res = await fetch('/api/branch-staff');
+    const res = await fetch('/api/branch-staff?include=all');
     const staffList = await res.json();
     if (!Array.isArray(staffList)) return;
     const grouped: Record<string, string[]> = {};
@@ -169,7 +170,7 @@ export default function UpdateSchedulePage() {
 
   const filteredHistory = useMemo(() => {
     return history.filter((record: any) => {
-      if (userRole === "BRANCH_MANAGER" && record.branch !== userBranch) return false;
+      if (isBranchManager(userRole) && record.branch !== userBranch) return false;
       if (filterBranch && record.branch !== filterBranch) return false;
       return true;
     });
@@ -186,7 +187,7 @@ export default function UpdateSchedulePage() {
         if (!val || val === "None") return;
         const dayName = key.split('-')[0];
         if (!dayMap[dayName]) dayMap[dayName] = new Set();
-        dayMap[dayName].add(val as string);
+        dayMap[dayName].add((val as string).toUpperCase());
       });
       if (Object.keys(dayMap).length > 0) map[s.branch] = dayMap;
     });
@@ -220,6 +221,9 @@ export default function UpdateSchedulePage() {
   const sanitizeSelections = (selections: Record<string, any>, branch?: string) => {
     const allKnownStaff = [...SHARED_EMPLOYEES, ...(branch ? (branchStaffData[branch] || []) : Object.values(branchStaffData).flat())];
     const nameLookup = new Map(allKnownStaff.map(n => [n.toLowerCase(), n]));
+    // Build a lookup across ALL branches to validate replacement staff
+    const allStaffFlat = Object.values(branchStaffData).flat();
+    const allStaffLower = new Map(allStaffFlat.map(n => [n.toLowerCase(), n]));
     return Object.fromEntries(
       Object.entries(selections || {})
         .filter(([, v]) => v && v !== "None")
@@ -229,8 +233,14 @@ export default function UpdateSchedulePage() {
           if (exactMatch) return [k, exactMatch];
           // Fuzzy: handles "Thiru" → "Thiru (Training)" when base name matches
           const fuzzyMatch = allKnownStaff.find(n => n.toLowerCase().startsWith(storedLower + ' '));
-          return [k, fuzzyMatch ?? v];
+          if (fuzzyMatch) return [k, fuzzyMatch];
+          // Check if this is a valid replacement staff from another branch
+          const anyBranchMatch = allStaffLower.get(storedLower);
+          if (anyBranchMatch) return [k, anyBranchMatch];
+          // Not found anywhere in BranchStaff — stale entry, drop it
+          return [k, null];
         })
+        .filter(([, v]) => v !== null)
     );
   };
 
@@ -627,7 +637,7 @@ export default function UpdateSchedulePage() {
                                             {(branchManagerData[managerReplacementBranch[day] || selectedRecord.branch] || []).map(e => {
                                               const mgReplacementBranch = managerReplacementBranch[day];
                                               const conflictBranch = mgReplacementBranch
-                                                ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                                ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e.toUpperCase()))?.[0]
                                                 : undefined;
                                               const isConflict = !!conflictBranch;
                                               return (
@@ -676,7 +686,7 @@ export default function UpdateSchedulePage() {
                                                 <option value="">None</option>
                                                 {colStaffList.map(e => {
                                                   const conflictBranch = replacementBranch
-                                                    ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                                    ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e.toUpperCase()))?.[0]
                                                     : undefined;
                                                   const isConflict = !!conflictBranch;
                                                   return (
@@ -804,7 +814,7 @@ export default function UpdateSchedulePage() {
                 </h1>
               </div>
 
-              {userRole !== "BRANCH_MANAGER" && (
+              {!isBranchManager(userRole) && (
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6">
                   <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Branch</label>
                   <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setDrillYear(null); setDrillMonth(null); }}
@@ -824,16 +834,25 @@ export default function UpdateSchedulePage() {
               ) : (() => {
                 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
                 const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                const lastDay = (drillYear && drillMonth !== null)
-                  ? new Date(parseInt(drillYear), drillMonth + 1, 0).getDate()
-                  : 31;
-                const WEEK_RANGES = [
-                  { label: "01 – 07", start: 1, end: 7 },
-                  { label: "08 – 14", start: 8, end: 14 },
-                  { label: "15 – 21", start: 15, end: 21 },
-                  { label: "22 – 28", start: 22, end: 28 },
-                  ...(lastDay >= 29 ? [{ label: `29 – ${String(lastDay).padStart(2, "0")}`, start: 29, end: lastDay }] : []),
-                ];
+                // Derive week rows from actual planned schedules instead of fixed calendar ranges
+                const distinctWeeks = Array.from(new Set(
+                  (drillYear !== null && drillMonth !== null
+                    ? filteredHistory.filter((r: any) =>
+                        format(parseISO(r.startDate), "yyyy") === drillYear &&
+                        parseInt(format(parseISO(r.startDate), "M")) - 1 === drillMonth
+                      )
+                    : []
+                  ).map((r: any) => r.startDate)
+                ))
+                  .sort()
+                  .map(startDate => {
+                    const rec = filteredHistory.find((r: any) => r.startDate === startDate);
+                    return {
+                      startDate,
+                      endDate: rec?.endDate ?? startDate,
+                      label: `${format(parseISO(startDate as string), "dd MMM")} – ${format(parseISO(rec?.endDate ?? startDate as string), "dd MMM")}`,
+                    };
+                  });
                 const byYear: Record<string, any[]> = {};
                 filteredHistory.forEach((r: any) => {
                   const y = format(parseISO(r.startDate), "yyyy");
@@ -853,14 +872,11 @@ export default function UpdateSchedulePage() {
                         <h2 className="text-lg font-black uppercase tracking-widest text-slate-800">{drillYear} <span className="text-slate-400">›</span> {MONTH_NAMES[drillMonth]}</h2>
                       </div>
                       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        {WEEK_RANGES.map((week, wi) => {
-                          const weekRecs = monthRecs.filter((r: any) => {
-                            const d = parseInt(format(parseISO(r.startDate), "d"));
-                            return d >= week.start && d <= week.end;
-                          });
+                        {distinctWeeks.map((week, wi) => {
+                          const weekRecs = monthRecs.filter((r: any) => r.startDate === week.startDate);
                           return (
-                            <div key={week.label} className={`flex gap-4 items-start px-5 py-4 ${wi < WEEK_RANGES.length - 1 ? "border-b border-slate-100" : ""}`}>
-                              <div className="w-20 shrink-0 text-xs font-black text-slate-400 pt-2">{week.label}</div>
+                            <div key={week.startDate} className={`flex gap-4 items-start px-5 py-4 ${wi < distinctWeeks.length - 1 ? "border-b border-slate-100" : ""}`}>
+                              <div className="w-28 shrink-0 text-xs font-black text-slate-400 pt-2">{week.label}</div>
                               <div className="flex flex-wrap gap-2 flex-1">
                                 {weekRecs.length > 0 ? weekRecs.map((record: any) => (
                                   <button key={record.id} onClick={() => handleSelectRecord(record)}

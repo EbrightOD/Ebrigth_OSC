@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { request } from 'urllib';
 import { SCANNERS } from '@/lib/scanners';
+import { requireRole } from '@/lib/auth';
+import { ADMIN_ROLES } from '@/lib/roles';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +20,9 @@ interface HikvisionEvent {
 }
 
 export async function GET() {
+  const { error } = await requireRole(ADMIN_ROLES);
+  if (error) return error;
+
   try {
     const scanner = SCANNERS[0];
     const url = `http://${scanner.ip}/ISAPI/AccessControl/AcsEvent?format=json`;
@@ -26,7 +31,7 @@ export async function GET() {
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
 
-    let allEvents: HikvisionEvent[] = [];
+    const allEvents: HikvisionEvent[] = [];
     let currentPosition = 0;
     let isFetching = true;
     let safetyCounter = 0;

@@ -1,36 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSession } from '@/lib/auth';
-
-// Position level code (pos2)
-function getPositionCode(role: string): string {
-  const r = role.toUpperCase();
-  if (r.includes('CEO')) return '11';
-  if (r.includes('HOD')) return '22';
-  if (r.includes('EXEC') || r.includes('BM') || r.startsWith('FT - COACH') || r.startsWith('PT - COACH') || r.includes('FT - COACH ') || r.includes('PT - COACH ')) return '33';
-  if (r.startsWith('FT - ') || r.startsWith('PT - ')) return '33';
-  if (r.includes('INT')) return '44';
-  return '33';
-}
-
-// Department code (pos1.1) from branch field
-function getDeptCode(branch: string): string {
-  const map: Record<string, string> = {
-    'HQ':  '01',
-    'OD':  '08',
-    'ACD': '03',
-    'HR':  '04',
-    'FNC': '05',
-    'FIN': '05',
-    'IOP': '06',
-    'MKT': '07',
-  };
-  return map[branch.toUpperCase()] ?? '09';
-}
-
-function buildEmployeeId(role: string, branch: string, seq: number): string {
-  return `${getPositionCode(role)}${getDeptCode(branch)}00${String(seq).padStart(2, '0')}`;
-}
+import { requireSession, requireRole, assertSameBranch, canSeeAllBranches } from '@/lib/auth';
+import { ADMIN_ROLES } from '@/lib/roles';
+import { isValidEmployeeId } from '@/lib/employeeId';
 
 // Map BranchStaff DB row → Employee shape expected by the frontend
 function toEmployee(s: Record<string, unknown>) {
@@ -71,7 +43,7 @@ function toEmployee(s: Record<string, unknown>) {
 }
 
 export async function GET(request: Request) {
-  const { error } = await requireSession();
+  const { session, error } = await requireSession();
   if (error) return error;
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search')?.toLowerCase() || '';
@@ -83,6 +55,15 @@ export async function GET(request: Request) {
   if (branch) where.branch = branch;
   if (role) where.role = role;
   if (accessStatus) where.accessStatus = accessStatus;
+
+  // Interim branch scoping: non-admin/HOD users are restricted to their own
+  // branch. This filters at the DB layer so unauthorized rows never load.
+  // Step 3 replaces this with scopedDb(session) once the schema gets a
+  // proper tenantId/branchId foreign key.
+  if (!canSeeAllBranches(session)) {
+    const userBranch = (session.user as { branchName?: string }).branchName;
+    where.branch = userBranch ?? '__none__';
+  }
 
   const staff = await prisma.branchStaff.findMany({ where, orderBy: { id: 'asc' } });
 
@@ -101,12 +82,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { error } = await requireSession();
+  const { session, error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
     const body = await request.json();
-    const { fullName, email, phone, branch, role, gender, nickName, nric, dob,
+    const { employeeId, fullName, email, phone, branch, role, gender, nickName, nric, dob,
             homeAddress, contract, startDate, endDate, probation, rate,
             Emc_Number, Emc_Email, Emc_Relationship, Signed_Date, Emp_Hire_Date,
             Emp_Type, Emp_Status, Bank, Bank_Name, Bank_Account, University } = body;
@@ -114,18 +95,28 @@ export async function POST(request: Request) {
     if (!fullName || !email || !phone || !branch || !role) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+    // Employee ID is optional. If provided, validate format and uniqueness.
+    if (employeeId !== undefined && employeeId !== null && employeeId !== '') {
+      if (!isValidEmployeeId(employeeId)) {
+        return NextResponse.json({ error: 'Employee ID must be exactly 8 digits' }, { status: 400 });
+      }
+      const existingByEmployeeId = await prisma.branchStaff.findFirst({ where: { employeeId } });
+      if (existingByEmployeeId) {
+        return NextResponse.json({ error: 'Employee ID already exists' }, { status: 409 });
+      }
+    }
+
+    const branchGuard = assertSameBranch(session, branch);
+    if (branchGuard) return branchGuard;
 
     const normalizedFullName = fullName.toUpperCase();
     const normalizedNickName = nickName ? nickName.toUpperCase() : null;
     const normalizedHomeAddress = homeAddress ? homeAddress.toUpperCase() : null;
 
-    const existing = await prisma.branchStaff.findFirst({ where: { email } });
-    if (existing) {
+    const existingByEmail = await prisma.branchStaff.findFirst({ where: { email } });
+    if (existingByEmail) {
       return NextResponse.json({ error: 'Email already exists' }, { status: 409 });
     }
-
-    const count = await prisma.branchStaff.count();
-    const employeeId = buildEmployeeId(role, branch, count + 1);
 
     const newStaff = await prisma.branchStaff.create({
       data: {
@@ -170,7 +161,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const { error } = await requireSession();
+  const { session, error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
@@ -185,13 +176,29 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
     }
 
-    let recalculatedEmployeeId: string | undefined;
-    if (branch !== undefined || role !== undefined) {
-      const current = await prisma.branchStaff.findUnique({ where: { id: parseInt(id) } });
-      if (current) {
-        const newBranch = branch ?? current.branch ?? 'HQ';
-        const newRole = role ?? current.role ?? '';
-        recalculatedEmployeeId = buildEmployeeId(newRole, newBranch, current.id);
+    if (branch !== undefined) {
+      const branchGuard = assertSameBranch(session, branch);
+      if (branchGuard) return branchGuard;
+    }
+    const existing = await prisma.branchStaff.findUnique({
+      where: { id: parseInt(id) },
+      select: { branch: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    const idGuard = assertSameBranch(session, existing.branch);
+    if (idGuard) return idGuard;
+
+    if (employeeId !== undefined) {
+      if (!isValidEmployeeId(employeeId)) {
+        return NextResponse.json({ error: 'Employee ID must be exactly 8 digits' }, { status: 400 });
+      }
+      const existingByEmployeeId = await prisma.branchStaff.findFirst({
+        where: { employeeId, NOT: { id: parseInt(id) } },
+      });
+      if (existingByEmployeeId) {
+        return NextResponse.json({ error: 'Employee ID already exists' }, { status: 409 });
       }
     }
 
@@ -225,7 +232,7 @@ export async function PUT(request: Request) {
         ...(Bank_Name !== undefined && { bank_name: Bank_Name }),
         ...(Bank_Account !== undefined && { bank_account: Bank_Account }),
         ...(University !== undefined && { university: University }),
-        ...(recalculatedEmployeeId !== undefined && { employeeId: recalculatedEmployeeId }),
+        ...(employeeId !== undefined && { employeeId }),
       },
     });
 
@@ -240,7 +247,7 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const { error } = await requireSession();
+  const { session, error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
@@ -250,6 +257,16 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
     }
+
+    const existing = await prisma.branchStaff.findUnique({
+      where: { id: parseInt(id) },
+      select: { branch: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+    const idGuard = assertSameBranch(session, existing.branch);
+    if (idGuard) return idGuard;
 
     const deleted = await prisma.branchStaff.delete({ where: { id: parseInt(id) } });
 

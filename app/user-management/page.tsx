@@ -1,12 +1,14 @@
 "use client";
 
 import { useRef, useState, Suspense } from "react";
+import { useSession } from "next-auth/react";
 import UserManagement from "@/app/components/UserManagement";
 import RegistrationForm from "@/app/components/RegistrationForm";
 import Sidebar from "@/app/components/Sidebar";
 import UserHeader from "@/app/components/UserHeader";
 
 const CSV_HEADERS = [
+  "employeeId",
   "fullName", "gender", "nickName", "email", "phone", "nric", "dob",
   "homeAddress", "branch", "role", "contract", "startDate", "endDate", "probation", "rate",
   "Emc_Number", "Emc_Email", "Emc_Relationship", "Signed_Date", "Emp_Hire_Date",
@@ -14,6 +16,8 @@ const CSV_HEADERS = [
 ];
 
 export default function UserManagementPage() {
+  const { data: session } = useSession();
+  const userRole = (session?.user as { role?: string } | undefined)?.role ?? "";
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showAddUser, setShowAddUser] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -200,7 +204,7 @@ export default function UserManagementPage() {
 
           {/* User Management Table */}
           <Suspense fallback={<div className="p-4 text-center text-gray-500">Loading users...</div>}>
-            <UserManagement key={refreshKey} />
+            <UserManagement key={refreshKey} userRole={userRole} />
           </Suspense>
         </main>
       </div>

@@ -24,6 +24,7 @@ export default function HomePage() {
   }
 
   const userEmail = session?.user?.email || "";
+  const userRole = (session?.user as any)?.role || "USER";
   const branchName = (session?.user as any)?.branchName || "Admin User";
 
   return (
@@ -35,7 +36,7 @@ export default function HomePage() {
             <h1 className="text-3xl font-bold">Ebright Portal</h1>
             <p className="text-blue-100 mt-1">Dashboard Home</p>
           </div>
-          
+
           {/* NOW USING LIVE DATA FROM POSTGRESQL! */}
           <UserHeader
             userName={branchName}
@@ -48,7 +49,7 @@ export default function HomePage() {
         <Sidebar sidebarOpen={sidebarOpen} onToggle={() => setSidebarOpen(p => !p)} />
 
         <main className="flex-1 overflow-y-auto">
-          <DashboardHome />
+          <DashboardHome userRole={userRole} userEmail={userEmail} />
         </main>
       </div>
     </div>

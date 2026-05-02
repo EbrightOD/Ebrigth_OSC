@@ -53,6 +53,7 @@ export const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
 
 export const CONTRACT_OPTIONS = [
   { value: "", label: "None" },
+  { value: "9 MONTH", label: "9 Month" },
   { value: "12 MONTH", label: "12 Month" },
   { value: "15 MONTH", label: "15 Month" },
   { value: "18 MONTH", label: "18 Month" },
@@ -93,6 +94,18 @@ export const GENDER_OPTIONS = [
   { value: "MALE", label: "Male" },
   { value: "FEMALE", label: "Female" },
 ];
+
+export const ROLE_CODE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "11", label: "11 — CEO" },
+  { value: "22", label: "22 — HOD" },
+  { value: "33", label: "33 — EXEC" },
+  { value: "44", label: "44 — INTERN" },
+  { value: "55", label: "55 — BM" },
+  { value: "66", label: "66 — FT COACH" },
+  { value: "77", label: "77 — PT COACH" },
+];
+
+export const ROLE_CODES = ROLE_CODE_OPTIONS.map((o) => o.value);
 
 export function getRoleLabel(role: string): string {
   const option = ROLE_OPTIONS.find((opt) => opt.value === role);

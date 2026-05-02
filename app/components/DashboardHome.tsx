@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { isBranchManager } from "@/lib/roles";
 
 interface DashboardCard {
   id: string;
@@ -44,7 +45,8 @@ const dashboards: DashboardCard[] = [
       { name: "Employee Dashboard", href: "/dashboard-employee-management", icon: "📊" },
       { name: "Manpower Planning", href: "/manpower-schedule", icon: "🗂️" },
       { name: "Attendance", href: "/attendance", icon: "📅" },
-      { name: "Claims", href: "/claims", icon: "💰" },
+      { name: "Claims", href: "/claim", icon: "💰" },
+      { name: "Manpower Cost Report", href: "/manpower-cost-report", icon: "💸" },
     ],
   },
   {
@@ -89,33 +91,43 @@ const dashboards: DashboardCard[] = [
   },
 ];
 
-export default function DashboardHome() {
+export default function DashboardHome({ userRole, userEmail }: { userRole?: string; userEmail?: string }) {
+  const branchManager = isBranchManager(userRole) || (userEmail?.toLowerCase().includes("ebright") ?? false);
+  const accessibleCount = branchManager ? 1 : dashboards.length;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-8">
-          <h1 className="text-4xl font-bold text-center text-red-600 mb-2">
-            Welcome
-          </h1>
-          <p className="text-center text-gray-600">{dashboards.length} accessible dashboards</p>
+          <h1 className="text-4xl font-bold text-center text-red-600 mb-2">Welcome</h1>
+          <p className="text-center text-gray-600">{accessibleCount} accessible dashboard{accessibleCount !== 1 ? "s" : ""}</p>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {dashboards.map((dashboard) => {
-            const href = dashboard.id === "academy" ? "/academy"
-              : dashboard.id === "sms" ? "/sms"
-              : `/dashboards/${dashboard.id}`;
+            const isDisabled = branchManager && !["hrms", "inventory"].includes(dashboard.id);
+
+const targetHref = 
+  dashboard.id === "academy" ? "/academy" : 
+  dashboard.id === "sms" ? "/sms" : 
+  dashboard.id === "inventory" ? "/api/launch-inventory" : 
+  `/dashboards/${dashboard.id}`;
+
+const href = isDisabled ? "#" : targetHref;
 
             return (
-              <Link key={dashboard.id} href={href}>
-                <div className={`p-3 rounded-lg flex items-center justify-center gap-3 aspect-square transition-all duration-300 ${dashboard.color} text-white hover:shadow-lg hover:scale-105`}>
+              <Link key={dashboard.id} href={href} aria-disabled={isDisabled} className={isDisabled ? "pointer-events-none" : ""}>
+                <div className={`p-3 rounded-lg flex items-center justify-center gap-3 aspect-square transition-all duration-300
+                  ${isDisabled ? "bg-slate-300 text-slate-500 opacity-60 grayscale" : `${dashboard.color} text-white hover:shadow-lg hover:scale-105`}
+                `}>
                   <div className="text-center">
                     <span className="text-2xl block mb-1">{dashboard.icon}</span>
                     <h2 className="text-sm font-bold">{dashboard.title}</h2>
+                    {isDisabled && (
+                      <span className="text-[10px] uppercase font-black tracking-widest mt-2 block bg-slate-400/20 px-2 py-1 rounded">Locked</span>
+                    )}
                   </div>
                 </div>
               </Link>

@@ -1,34 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSession } from '@/lib/auth';
+import { requireRole } from '@/lib/auth';
+import { ADMIN_ROLES, ROLE_VALUES } from '@/lib/roles';
 import bcrypt from 'bcryptjs';
-import { z } from 'zod';
 
-const CreateUserSchema = z.object({
-  name:       z.string().optional(),
-  email:      z.string().email(),
-  password:   z.string().min(8),
-  role:       z.string().min(1),
-  branchName: z.string().optional(),
-});
+// `role` is constrained to the canonical list in lib/roles.ts. The DB column
+// is still a free-form string for backwards compatibility, but these checks
+// prevent the API from ever writing an off-list value — closing the
+// "POST /api/users with role: 'SuperAdmin_X'" escalation vector.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ROLE_SET: ReadonlySet<string> = new Set(ROLE_VALUES);
 
-const UpdateUserSchema = z.object({
-  id:         z.number().int(),
-  name:       z.string().optional(),
-  email:      z.string().email().optional(),
-  password:   z.string().min(8).optional(),
-  role:       z.string().optional(),
-  branchName: z.string().optional(),
-});
+function bad(error: string) {
+  return NextResponse.json({ error }, { status: 400 });
+}
 
-const PatchUserSchema = z.object({
-  id:     z.number().int(),
-  action: z.enum(['toggle-status', 'change-role']),
-  role:   z.string().optional(),
-});
+type Obj = Record<string, unknown>;
+function asObj(v: unknown): Obj | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : null;
+}
+
+function parseCreate(raw: unknown):
+  | { ok: true; data: { name: string | null; email: string; password: string; role: string; branchName: string | null } }
+  | { ok: false; error: string } {
+  const b = asObj(raw);
+  if (!b) return { ok: false, error: 'Invalid JSON body' };
+  if (typeof b.email !== 'string' || !EMAIL_RE.test(b.email)) return { ok: false, error: 'email must be a valid email' };
+  if (typeof b.password !== 'string' || b.password.length < 8) return { ok: false, error: 'password must be at least 8 characters' };
+  if (typeof b.role !== 'string' || !ROLE_SET.has(b.role)) return { ok: false, error: 'role must be one of ' + ROLE_VALUES.join(', ') };
+  if (b.name !== undefined && typeof b.name !== 'string') return { ok: false, error: 'name must be a string' };
+  if (b.branchName !== undefined && typeof b.branchName !== 'string') return { ok: false, error: 'branchName must be a string' };
+  return {
+    ok: true,
+    data: {
+      email: b.email,
+      password: b.password,
+      role: b.role,
+      name: (b.name as string | undefined) ?? null,
+      branchName: (b.branchName as string | undefined) ?? null,
+    },
+  };
+}
+
+function parseUpdate(raw: unknown):
+  | { ok: true; data: { id: number; name?: string; email?: string; password?: string; role?: string; branchName?: string } }
+  | { ok: false; error: string } {
+  const b = asObj(raw);
+  if (!b) return { ok: false, error: 'Invalid JSON body' };
+  if (typeof b.id !== 'number' || !Number.isInteger(b.id)) return { ok: false, error: 'id must be an integer' };
+  if (b.email !== undefined && (typeof b.email !== 'string' || !EMAIL_RE.test(b.email))) return { ok: false, error: 'email must be a valid email' };
+  if (b.password !== undefined && (typeof b.password !== 'string' || b.password.length < 8)) return { ok: false, error: 'password must be at least 8 characters' };
+  if (b.role !== undefined && (typeof b.role !== 'string' || !ROLE_SET.has(b.role))) return { ok: false, error: 'role must be one of ' + ROLE_VALUES.join(', ') };
+  if (b.name !== undefined && typeof b.name !== 'string') return { ok: false, error: 'name must be a string' };
+  if (b.branchName !== undefined && typeof b.branchName !== 'string') return { ok: false, error: 'branchName must be a string' };
+  return {
+    ok: true,
+    data: {
+      id: b.id,
+      name:       b.name       as string | undefined,
+      email:      b.email      as string | undefined,
+      password:   b.password   as string | undefined,
+      role:       b.role       as string | undefined,
+      branchName: b.branchName as string | undefined,
+    },
+  };
+}
+
+function parsePatch(raw: unknown):
+  | { ok: true; data: { id: number; action: 'toggle-status' | 'change-role'; role?: string } }
+  | { ok: false; error: string } {
+  const b = asObj(raw);
+  if (!b) return { ok: false, error: 'Invalid JSON body' };
+  if (typeof b.id !== 'number' || !Number.isInteger(b.id)) return { ok: false, error: 'id must be an integer' };
+  if (b.action !== 'toggle-status' && b.action !== 'change-role') return { ok: false, error: "action must be 'toggle-status' or 'change-role'" };
+  if (b.role !== undefined && (typeof b.role !== 'string' || !ROLE_SET.has(b.role))) return { ok: false, error: 'role must be one of ' + ROLE_VALUES.join(', ') };
+  return {
+    ok: true,
+    data: { id: b.id, action: b.action, role: b.role as string | undefined },
+  };
+}
 
 export async function GET() {
-  const { error } = await requireSession();
+  const { error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
@@ -44,14 +97,12 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { error } = await requireSession();
+  const { error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
-    const parsed = CreateUserSchema.safeParse(await req.json());
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-    }
+    const parsed = parseCreate(await req.json());
+    if (!parsed.ok) return bad(parsed.error);
     const { name, email, password, role, branchName } = parsed.data;
 
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -61,7 +112,7 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { name: name ?? null, email, passwordHash, role, branchName: branchName ?? null, status: 'ACTIVE' },
+      data: { name, email, passwordHash, role, branchName, status: 'ACTIVE' },
       select: { id: true, name: true, email: true, role: true, branchName: true, status: true, createdAt: true },
     });
     return NextResponse.json(user, { status: 201 });
@@ -72,14 +123,12 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const { error } = await requireSession();
+  const { error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
-    const parsed = UpdateUserSchema.safeParse(await req.json());
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-    }
+    const parsed = parseUpdate(await req.json());
+    if (!parsed.ok) return bad(parsed.error);
     const { id, name, email, role, branchName, password } = parsed.data;
 
     if (email) {
@@ -90,11 +139,11 @@ export async function PUT(req: NextRequest) {
     }
 
     const updateData: Record<string, unknown> = {};
-    if (name !== undefined)     updateData.name       = name;
-    if (email !== undefined)    updateData.email      = email;
-    if (role !== undefined)     updateData.role       = role;
+    if (name !== undefined)       updateData.name       = name;
+    if (email !== undefined)      updateData.email      = email;
+    if (role !== undefined)       updateData.role       = role;
     if (branchName !== undefined) updateData.branchName = branchName;
-    if (password)               updateData.passwordHash = await bcrypt.hash(password, 10);
+    if (password)                 updateData.passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.update({
       where: { id },
@@ -109,17 +158,15 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const { error } = await requireSession();
+  const { error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {
-    const parsed = PatchUserSchema.safeParse(await req.json());
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-    }
+    const parsed = parsePatch(await req.json());
+    if (!parsed.ok) return bad(parsed.error);
     const { id, action, role } = parsed.data;
 
-    let updateData: Record<string, unknown> = {};
+    const updateData: Record<string, unknown> = {};
 
     if (action === 'toggle-status') {
       const current = await prisma.user.findUnique({ where: { id }, select: { status: true } });
@@ -143,7 +190,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const { error } = await requireSession();
+  const { error } = await requireRole(ADMIN_ROLES);
   if (error) return error;
 
   try {

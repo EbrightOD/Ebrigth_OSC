@@ -13,6 +13,7 @@ import {
   getWorkingDaysForBranch, isOpeningClosingSlot,
   isManagerOnDutySlot,
 } from "@/lib/manpowerUtils";
+import { isBranchManager } from "@/lib/roles";
 
 
 // --- HELPER COMPONENT: SUMMARY TABLE ---
@@ -105,7 +106,7 @@ export default function ArchiveSchedulePage() {
       }
     };
     const fetchStaff = async () => {
-      const res = await fetch('/api/branch-staff');
+      const res = await fetch('/api/branch-staff?include=all');
       const staffList = await res.json();
       const grouped: Record<string, string[]> = {};
       const managers: Record<string, string[]> = {};
@@ -157,7 +158,7 @@ export default function ArchiveSchedulePage() {
   // --- APPLY FILTERS & ROLE SECURITY TO THE LIST ---
   const filteredHistory = useMemo(() => {
     return history.filter((record: any) => {
-      if (userRole === "BRANCH_MANAGER" && record.branch !== userBranch) return false;
+      if (isBranchManager(userRole) && record.branch !== userBranch) return false;
       if (filterBranch && record.branch !== filterBranch) return false;
       return true;
     });
@@ -416,7 +417,7 @@ export default function ArchiveSchedulePage() {
                   </div>
 
                   {/* FILTER CONTROLS */}
-                  {userRole !== "BRANCH_MANAGER" && (
+                  {!isBranchManager(userRole) && (
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6">
                       <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Branch</label>
                       <select value={filterBranch} onChange={(e) => { setFilterBranch(e.target.value); setDrillYear(null); setDrillMonth(null); }}
@@ -437,16 +438,25 @@ export default function ArchiveSchedulePage() {
                   ) : (() => {
                     const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
                     const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                    const lastDay = (drillYear && drillMonth !== null)
-                      ? new Date(parseInt(drillYear), drillMonth + 1, 0).getDate()
-                      : 31;
-                    const WEEK_RANGES = [
-                      { label: "01 – 07", start: 1, end: 7 },
-                      { label: "08 – 14", start: 8, end: 14 },
-                      { label: "15 – 21", start: 15, end: 21 },
-                      { label: "22 – 28", start: 22, end: 28 },
-                      ...(lastDay >= 29 ? [{ label: `29 – ${String(lastDay).padStart(2, "0")}`, start: 29, end: lastDay }] : []),
-                    ];
+                    // Derive week rows from actual planned schedules instead of fixed calendar ranges
+                    const distinctWeeks = Array.from(new Set(
+                      (drillYear !== null && drillMonth !== null
+                        ? filteredHistory.filter((r: any) =>
+                            format(parseISO(r.startDate), "yyyy") === drillYear &&
+                            parseInt(format(parseISO(r.startDate), "M")) - 1 === drillMonth
+                          )
+                        : []
+                      ).map((r: any) => r.startDate)
+                    ))
+                      .sort()
+                      .map(startDate => {
+                        const rec = filteredHistory.find((r: any) => r.startDate === startDate);
+                        return {
+                          startDate,
+                          endDate: rec?.endDate ?? startDate,
+                          label: `${format(parseISO(startDate as string), "dd MMM")} – ${format(parseISO(rec?.endDate ?? startDate as string), "dd MMM")}`,
+                        };
+                      });
                     const byYear: Record<string, any[]> = {};
                     filteredHistory.forEach((r: any) => {
                       const y = format(parseISO(r.startDate), "yyyy");
@@ -466,14 +476,11 @@ export default function ArchiveSchedulePage() {
                             <h2 className="text-lg font-black uppercase tracking-widest text-slate-800">{drillYear} <span className="text-slate-400">›</span> {MONTH_NAMES[drillMonth]}</h2>
                           </div>
                           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            {WEEK_RANGES.map((week, wi) => {
-                              const weekRecs = monthRecs.filter((r: any) => {
-                                const d = parseInt(format(parseISO(r.startDate), "d"));
-                                return d >= week.start && d <= week.end;
-                              });
+                            {distinctWeeks.map((week, wi) => {
+                              const weekRecs = monthRecs.filter((r: any) => r.startDate === week.startDate);
                               return (
-                                <div key={week.label} className={`flex gap-4 items-start px-5 py-4 ${wi < WEEK_RANGES.length - 1 ? "border-b border-slate-100" : ""}`}>
-                                  <div className="w-20 shrink-0 text-xs font-black text-slate-400 pt-2">{week.label}</div>
+                                <div key={week.startDate} className={`flex gap-4 items-start px-5 py-4 ${wi < distinctWeeks.length - 1 ? "border-b border-slate-100" : ""}`}>
+                                  <div className="w-28 shrink-0 text-xs font-black text-slate-400 pt-2">{week.label}</div>
                                   <div className="flex flex-wrap gap-2 flex-1">
                                     {weekRecs.length > 0 ? weekRecs.map((record: any) => (
                                       <button key={record.id}

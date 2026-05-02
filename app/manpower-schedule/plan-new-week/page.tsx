@@ -16,6 +16,7 @@ import {
   isManagerOnDutySlot,
   SELECT_ARROW_WHITE, SELECT_ARROW_DARK
 } from "@/lib/manpowerUtils";
+import { isBranchManager } from "@/lib/roles";
 
 
 // --- HELPER COMPONENT: SUMMARY TABLE ---
@@ -115,7 +116,7 @@ function PlanNewWeekPage() {
       const userBranch = (session.user as any).branchName;
 
       // If they are a branch manager, skip the selection screen immediately!
-      if (userRole === "BRANCH_MANAGER" && userBranch) {
+      if (isBranchManager(userRole) && userBranch) {
         setSelectedBranch(userBranch);
         setHasConfirmedBranch(true);
       }
@@ -161,7 +162,7 @@ function PlanNewWeekPage() {
   }, [selections, notes, selectedBranch, startDateStr, isLocked]);
 
   const fetchStaff = async () => {
-    const res = await fetch('/api/branch-staff');
+    const res = await fetch('/api/branch-staff?include=all');
     const staffList = await res.json();
     if (!Array.isArray(staffList)) return;
     const grouped: Record<string, string[]> = {};
@@ -205,7 +206,7 @@ function PlanNewWeekPage() {
             if (!val || val === "None") return;
             const dayName = key.split('-')[0];
             if (!dayMap[dayName]) dayMap[dayName] = new Set();
-            dayMap[dayName].add(val as string);
+            dayMap[dayName].add((val as string).toUpperCase());
           });
           if (Object.keys(dayMap).length > 0) map[s.branch] = dayMap;
         });
@@ -461,7 +462,7 @@ function PlanNewWeekPage() {
                 </button>
               )}
               {/* ONLY show "Change Branch" if they are NOT a Branch Manager */}
-              {hasConfirmedBranch && !hasConfirmedWeek && userRole !== "BRANCH_MANAGER" && (
+              {hasConfirmedBranch && !hasConfirmedWeek && !isBranchManager(userRole) && (
                 <button
                   onClick={() => setHasConfirmedBranch(false)}
                   className="bg-slate-200 text-slate-700 hover:bg-slate-300 px-6 py-3 rounded-xl font-bold uppercase transition-colors shadow-sm"
@@ -656,7 +657,7 @@ function PlanNewWeekPage() {
                                       {(branchManagerData[managerReplacementBranch[day] || selectedBranch] || []).map(e => {
                                         const mgReplacementBranch = managerReplacementBranch[day];
                                         const conflictBranch = mgReplacementBranch
-                                          ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                          ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e.toUpperCase()))?.[0]
                                           : undefined;
                                         const isConflict = !!conflictBranch;
                                         const isAssignedAsStaff = COLUMNS.some(c => selections[`${day}-${slot}-${c.id}`] === e);
@@ -709,7 +710,7 @@ function PlanNewWeekPage() {
                                             const usedInCol = namesUsedInOtherColumns.has(e);
                                             // find which branch already has this employee scheduled on this specific day
                                             const conflictBranch = replacementBranch
-                                              ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e))?.[0]
+                                              ? Object.entries(scheduledElsewhere).find(([, dayMap]) => dayMap[day]?.has(e.toUpperCase()))?.[0]
                                               : undefined;
                                             const isConflict = !!conflictBranch;
                                             return (

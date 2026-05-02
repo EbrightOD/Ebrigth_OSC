@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireSession } from '@/lib/auth';
 
 // GET /api/attendance-today?date=YYYY-MM-DD
 // Returns attendance for the given date from BOTH scanner tables:
@@ -28,6 +29,9 @@ function todayKL(): string {
 }
 
 export async function GET(req: NextRequest) {
+  const { error } = await requireSession();
+  if (error) return error;
+
   try {
     const requested = req.nextUrl.searchParams.get('date');
     const date = requested && DATE_RE.test(requested) ? requested : todayKL();

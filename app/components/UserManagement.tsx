@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { BRANCH_OPTIONS, ROLE_OPTIONS, CONTRACT_OPTIONS, GENDER_OPTIONS } from "@/lib/constants";
+import { BRANCH_OPTIONS, ROLE_OPTIONS, CONTRACT_OPTIONS, GENDER_OPTIONS, ROLE_CODES } from "@/lib/constants";
+import { isAdmin } from "@/lib/roles";
+import EmployeeIdInput from "@/app/components/EmployeeIdInput";
+import { splitEmployeeId, composeEmployeeId, isValidSuffix, isValidEmployeeId } from "@/lib/employeeId";
 
 interface User {
   id: string;
@@ -54,7 +57,14 @@ const field = (label: string, value: string | undefined | null) => (
   </div>
 );
 
-export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagementProps) {
+function hasUnrecognizedPrefix(employeeId: string | undefined): boolean {
+  if (!employeeId || !isValidEmployeeId(employeeId)) return false;
+  return !ROLE_CODES.includes(splitEmployeeId(employeeId).prefix);
+}
+
+// Defaults to "" so that a caller forgetting to pass userRole fails closed
+// via `isAdmin("") === false`, rather than silently granting admin access.
+export default function UserManagement({ userRole = "" }: UserManagementProps) {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -62,12 +72,15 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState<User | null>(null);
+  const [empIdPrefix, setEmpIdPrefix] = useState("");
+  const [empIdSuffix, setEmpIdSuffix] = useState("");
+  const [empIdError, setEmpIdError] = useState("");
   const detailRef = useRef<HTMLDivElement>(null);
 
   const searchParams = useSearchParams();
   const targetEmployeeId = searchParams.get("employeeId");
 
-  const isAuthorized = userRole === "SUPER_ADMIN";
+  const isAuthorized = isAdmin(userRole);
 
   useEffect(() => {
     if (!isAuthorized) { setLoading(false); return; }
@@ -137,11 +150,23 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
 
   const handleSave = async () => {
     if (!editData) return;
+    // Only send employeeId if BOTH parts are filled and valid; otherwise skip
+    // it from the payload so other field edits can still save.
+    const original = splitEmployeeId(selectedUser?.employeeId || "");
+    const idChanged = empIdPrefix !== original.prefix || empIdSuffix !== original.suffix;
+    const idIsComplete = !!empIdPrefix && isValidSuffix(empIdSuffix);
+    setEmpIdError("");
     try {
+      const newEmployeeId = idChanged && idIsComplete
+        ? composeEmployeeId(empIdPrefix, empIdSuffix)
+        : undefined;
+      const payload = newEmployeeId !== undefined
+        ? { ...editData, employeeId: newEmployeeId }
+        : editData;
       const response = await fetch("/api/employees", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editData),
+        body: JSON.stringify(payload),
       });
       if (response.ok) {
         const result = await response.json();
@@ -150,7 +175,12 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
         setSelectedUser(saved);
         setEditMode(false);
       } else {
-        setError("Failed to save user");
+        const errBody = await response.json().catch(() => ({}));
+        if (response.status === 409 && errBody.error?.toLowerCase().includes('employee id')) {
+          setEmpIdError(errBody.error);
+        } else {
+          setError(errBody.error || "Failed to save user");
+        }
       }
     } catch (err) {
       console.error("Error saving user:", err);
@@ -163,7 +193,7 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
     if (!editData) return;
     const uppercaseFields = ["fullName", "nickName", "homeAddress"];
     const normalized = uppercaseFields.includes(name) ? value.toUpperCase() : value;
-    let updates: Partial<User> = { [name]: normalized };
+    const updates: Partial<User> = { [name]: normalized };
     if (name === "Emp_Status") {
       updates.accessStatus = value === "Active" ? "AUTHORIZED" : value === "Inactive" ? "UNAUTHORIZED" : editData.accessStatus;
     } else if (name === "accessStatus") {
@@ -290,7 +320,13 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
                   {!editMode && (
                     <div className="flex gap-2">
                       <button
-                        onClick={() => setEditMode(true)}
+                        onClick={() => {
+                          setEditMode(true);
+                          const parts = splitEmployeeId(selectedUser.employeeId);
+                          setEmpIdPrefix(parts.prefix);
+                          setEmpIdSuffix(parts.suffix);
+                          setEmpIdError("");
+                        }}
                         className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1.5 px-4 rounded-lg transition-colors"
                       >
                         ✏️ Edit
@@ -320,6 +356,17 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
                   <section>
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Personal Info</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <EmployeeIdInput
+                          prefix={empIdPrefix}
+                          suffix={empIdSuffix}
+                          onPrefixChange={(v) => { setEmpIdPrefix(v); if (empIdError) setEmpIdError(""); }}
+                          onSuffixChange={(v) => { setEmpIdSuffix(v); if (empIdError) setEmpIdError(""); }}
+                          error={empIdError}
+                          warning={hasUnrecognizedPrefix(selectedUser?.employeeId) ? "Existing ID has unrecognized role code" : undefined}
+                          required={false}
+                        />
+                      </div>
                       <div className="md:col-span-2">
                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Full Name</label>
                         <input type="text" name="fullName" value={editData ? getDisplayName(editData) : ""}
@@ -400,7 +447,7 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Emergency Contact</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {inp("Contact Number", "Emc_Number", "tel")}
-                      {inp("Contact Email", "Emc_Email", "email")}
+                      {inp("Full Name", "Emc_Email", "text")}
                       <div className="md:col-span-2">{inp("Relationship", "Emc_Relationship")}</div>
                     </div>
                   </section>
@@ -421,7 +468,11 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
                       💾 Save
                     </button>
-                    <button onClick={() => { setEditMode(false); setEditData({ ...selectedUser }); }}
+                    <button onClick={() => {
+                      setEditMode(false);
+                      setEditData({ ...selectedUser });
+                      setEmpIdError("");
+                    }}
                       className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors">
                       Cancel
                     </button>
@@ -472,7 +523,7 @@ export default function UserManagement({ userRole = "SUPER_ADMIN" }: UserManagem
                     <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Emergency Contact</h4>
                     <div className="grid grid-cols-2 gap-3">
                       {field("Contact Number", selectedUser.Emc_Number)}
-                      {field("Contact Email", selectedUser.Emc_Email)}
+                      {field("Full Name", selectedUser.Emc_Email)}
                       <div className="col-span-2">{field("Relationship", selectedUser.Emc_Relationship)}</div>
                     </div>
                   </section>
