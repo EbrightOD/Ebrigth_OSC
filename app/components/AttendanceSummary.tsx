@@ -371,12 +371,24 @@ export default function AttendanceSummary() {
   const checkedInCount = branchFilteredLogs.filter((r) => r.checkOutStr === null).length;
   const checkedOutCount = branchFilteredLogs.filter((r) => r.checkOutStr !== null).length;
 
-  // Missing = BranchStaff at selected location whose name doesn't appear in
-  // any scanned empName (case-insensitive partial match).
-  const scannedNames = branchFilteredLogs.map(r => r.name.toUpperCase());
+  // Missing = BranchStaff at selected location who didn't show up in today's scans.
+  // Match strategy:
+  //   1) Primary: exact empNo match against BranchStaff.employeeId — stable, reliable.
+  //   2) Fallback: case-insensitive substring match on names — used only when the
+  //      BranchStaff record's employeeId hasn't been mapped to scanner format yet.
+  //      Empty / very short scanned names are filtered out so they can't match every
+  //      staff record (".includes('')" is always true and would zero the list).
+  const scannedEmpNos = new Set(
+    branchFilteredLogs.map(r => r.empNo).filter(Boolean)
+  );
+  const scannedNames = branchFilteredLogs
+    .map(r => (r.name ?? '').toUpperCase().trim())
+    .filter(n => n.length >= 3); // ignore empty / 1–2 char tokens
+
   const missingEmployees = branchStaff.filter(s => {
     if (!s.name) return false;
     if (s.status !== 'Active') return false;   // hide Inactive / Archived / null
+    if (s.employeeId && scannedEmpNos.has(s.employeeId)) return false; // exact-ID hit
     const fullName = s.name.toUpperCase();
     return !scannedNames.some(sn => fullName.includes(sn) || sn.includes(fullName));
   });
