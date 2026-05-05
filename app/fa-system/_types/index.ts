@@ -1,0 +1,175 @@
+// ============================================================================
+// FA System — Core Domain Types
+// ============================================================================
+
+/** All 20 eBright branches. Code is the shortform used throughout the app. */
+export const BRANCHES = [
+  { code: "ONL", name: "Online" },
+  { code: "ST",  name: "Subang Taipan" },
+  { code: "SA",  name: "Setia Alam" },
+  { code: "SP",  name: "Sri Petaling" },
+  { code: "KD",  name: "Kota Damansara" },
+  { code: "PJY", name: "Putrajaya" },
+  { code: "AMP", name: "Ampang" },
+  { code: "CJY", name: "Cyberjaya" },
+  { code: "KLG", name: "Klang" },
+  { code: "DA",  name: "Denai Alam" },
+  { code: "BBB", name: "Bandar Baru Bangi" },
+  { code: "DK",  name: "Danau Kota" },
+  { code: "SHA", name: "Shah Alam" },
+  { code: "BTHO",name: "Bandar Tun Hussein Onn" },
+  { code: "EGR", name: "Eco Grandeur" },
+  { code: "BSP", name: "Bandar Seri Putra" },
+  { code: "RBY", name: "Bandar Rimbayu" },
+  { code: "TSG", name: "Taman Sri Gombak" },
+  { code: "KW",  name: "Kota Warisan" },
+  { code: "KTG", name: "Kajang TTDI" },
+] as const;
+
+export type BranchCode = typeof BRANCHES[number]["code"];
+
+// ----------------------------------------------------------------------------
+// Users & Auth
+// ----------------------------------------------------------------------------
+export type Role = "MKT" | "BM";
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  /** For BM users — the branch they manage. Null for MKT. */
+  branch: BranchCode | null;
+}
+
+// ----------------------------------------------------------------------------
+// Event
+// ----------------------------------------------------------------------------
+export type EventStatus =
+  | "draft"      // Being set up by marketing, not visible to BMs yet
+  | "open"       // BMs can now invite students
+  | "closed"     // Invitation window closed, waiting for event day
+  | "ongoing"    // Happening right now (between startDate and endDate)
+  | "completed"; // Finished
+
+export interface FAEvent {
+  id: string;
+  name: string;                 // e.g. "April 2026 Foundation Appraisal"
+  month: number;                // 1–12
+  year: number;
+  venue: string;                // Free text — e.g. "eBright HQ Subang"
+  startDate: string;            // ISO date
+  endDate: string;              // ISO date (== startDate for 1-day events)
+  numberOfDays: 1 | 2 | 3;
+  invitationOpenDate: string;   // When BMs can start inviting
+  invitationCloseDate: string;  // Deadline for invitations
+  status: EventStatus;
+  createdBy: string;            // User id
+  createdAt: string;            // ISO timestamp
+  notes?: string;
+}
+
+// ----------------------------------------------------------------------------
+// Session — a time slot within an event day
+// ----------------------------------------------------------------------------
+export interface Session {
+  id: string;
+  eventId: string;
+  dayNumber: 1 | 2 | 3;         // Which day of the event
+  sessionNumber: number;        // 1, 2, 3... within the day
+  startTime: string;            // "09:00"
+  endTime: string;              // "10:00"
+  /** Optional label — e.g. "Morning Batch A" */
+  label?: string;
+}
+
+// ----------------------------------------------------------------------------
+// Session Quota — per-branch allocation for a given session
+// e.g. Session 1 → ST: 7 slots, SA: 5 slots, SP: 2 slots
+// ----------------------------------------------------------------------------
+export interface SessionQuota {
+  id: string;
+  sessionId: string;
+  branch: BranchCode;
+  quota: number;                // How many students this branch can invite
+}
+
+// ----------------------------------------------------------------------------
+// Student
+// ----------------------------------------------------------------------------
+/** Age band stored on the student record (independent of curriculum grade —
+ *  an older student joining at grade 1 still carries their real age band). */
+export type AgeCategory = "Junior" | "Middler" | "Senior";
+
+export interface Student {
+  id: string;
+  name: string;
+  branch: BranchCode;
+  grade: number;                // 1–8 (curriculum level)
+  ageCategory: AgeCategory;     // age band — independent of grade
+  credit: number;               // 1–12. Credit 12 IS the showcase itself.
+  /** Record of past FA completions by grade. e.g. {1: true, 2: true, 3: false} */
+  faHistory: Record<number, boolean>;
+  parentName: string;
+  parentPhone: string;
+  enrolmentDate: string;        // ISO date
+  active: boolean;
+}
+
+/** Eligibility rule: a student is eligible for FA when they've earned 10 or 11 credits in their current grade. */
+export function isStudentEligible(student: Student): boolean {
+  return student.active && (student.credit === 10 || student.credit === 11);
+}
+
+/** Check if student has a backlog — any completed grade below current where FA was not done. */
+export function hasBacklog(student: Student): boolean {
+  for (let g = 1; g < student.grade; g++) {
+    if (student.faHistory[g] !== true) return true;
+  }
+  return false;
+}
+
+// ----------------------------------------------------------------------------
+// Invitation — one student invited to one session
+// ----------------------------------------------------------------------------
+export type InvitationStatus =
+  | "invited"       // BM has invited the student (called parent)
+  | "confirmed"     // Parent confirmed attendance
+  | "declined"      // Parent declined
+  | "attended"      // Student showed up on the day
+  | "no_show";      // Student did not show up
+
+export interface Invitation {
+  id: string;
+  eventId: string;
+  sessionId: string;
+  studentId: string;
+  branch: BranchCode;
+  status: InvitationStatus;
+  invitedBy: string;            // User id (BM)
+  invitedAt: string;
+  confirmedAt?: string;
+  attendanceMarkedAt?: string;
+  attendanceMarkedBy?: string;
+  notes?: string;
+}
+
+// ----------------------------------------------------------------------------
+// Derived / view-model types (used by pages, not stored)
+// ----------------------------------------------------------------------------
+export interface SessionWithDetails extends Session {
+  quotas: SessionQuota[];
+  invitations: Invitation[];
+  totalQuota: number;
+  totalInvited: number;
+  totalConfirmed: number;
+  totalAttended: number;
+}
+
+export interface EventWithStats extends FAEvent {
+  totalSessions: number;
+  totalQuota: number;
+  totalInvited: number;
+  totalConfirmed: number;
+  totalAttended: number;
+}
