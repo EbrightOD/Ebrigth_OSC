@@ -19,7 +19,10 @@ jobs:
           username: deploy
           key: ${{ secrets.STAGING_SSH_KEY }}
           command_timeout: 20m
-          script: /home/deploy/deploy.sh osc
+          script: |
+            export APP_SECRET="${{ secrets.APP_SECRET }}"
+            export ENCRYPTION_KEY="${{ secrets.ENCRYPTION_KEY }}"
+            /home/deploy/deploy.sh osc
 
   smoke-tests:
     needs: deploy # Only run tests AFTER deployment succeeds
