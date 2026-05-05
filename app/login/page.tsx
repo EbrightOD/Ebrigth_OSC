@@ -1,15 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CircleCheck, Eye, EyeOff, Lock, User } from "lucide-react";
 import { signIn } from "next-auth/react";
 
+// Reads the ?reset=1 query param. Isolated in its own component so the
+// useSearchParams() call lives inside a Suspense boundary — Next.js 15
+// fails the production build otherwise (prerender error on /login).
+function ResetBanner() {
+  const searchParams = useSearchParams();
+  if (searchParams.get("reset") !== "1") return null;
+  return (
+    <div role="status" className="mb-5 flex items-start gap-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-100 text-sm py-2.5 px-3 rounded-xl font-medium">
+      <CircleCheck className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+      <span>Password updated. Please sign in with your new password.</span>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const justReset = searchParams.get("reset") === "1";
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -69,12 +81,9 @@ export default function LoginPage() {
             <p className="text-blue-200 text-sm">Sign in to your account</p>
           </div>
 
-          {justReset && (
-            <div role="status" className="mb-5 flex items-start gap-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-100 text-sm py-2.5 px-3 rounded-xl font-medium">
-              <CircleCheck className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
-              <span>Password updated. Please sign in with your new password.</span>
-            </div>
-          )}
+          <Suspense fallback={null}>
+            <ResetBanner />
+          </Suspense>
 
           <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
             {/* Username field */}
