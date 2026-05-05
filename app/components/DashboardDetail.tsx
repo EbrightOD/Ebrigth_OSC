@@ -60,10 +60,10 @@ const dashboards: DashboardCard[] = [
     icon: "📊",
     color: "bg-yellow-500",
     items: [
-      { name: "Open CRM", href: "/crm", icon: "🚀" },
-      { name: "Contacts", href: "/crm/contacts", icon: "👥" },
-      { name: "Pipeline", href: "/crm/opportunities", icon: "📋" },
-      { name: "Automations", href: "/crm/automations", icon: "⚡" },
+      // Lead and Ticket are the only CRM entry points — both land on their
+      // respective dashboards first, where users drill into kanban / lists.
+      { name: "Lead",   href: "/crm/dashboard",         icon: "📋" },
+      { name: "Ticket", href: "/crm/tickets/dashboard", icon: "🎫" },
     ],
   },
   {

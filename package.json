@@ -11,7 +11,9 @@
     "test": "playwright test",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "seed:test": "tsx scripts/seed-test.ts"
+    "seed:test": "tsx scripts/seed-test.ts",
+    "worker": "tsx server/workers/index.ts",
+    "seed:leads": "tsx prisma/seed-from-powerbi.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",

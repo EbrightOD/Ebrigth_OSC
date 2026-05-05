@@ -1,5 +1,11 @@
 import type { NextConfig } from "next";
 
+// Validate critical env vars (NEXTAUTH_SECRET, BETTER_AUTH_SECRET,
+// ENCRYPTION_KEY, DATABASE_URL, …). Crashes the boot if any are missing
+// or still set to placeholder values like "replace-with-...". Imported
+// here so it runs once before any route compilation.
+import "./lib/env";
+
 const nextConfig: NextConfig = {
   // serverExternalPackages covers server-component passes.
   // The webpack() function below covers the instrumentation.ts compilation pass,
