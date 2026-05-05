@@ -27,6 +27,11 @@ export async function requireRole(allowed: readonly Role[]): Promise<AuthResult>
   const { session, error } = await requireSession();
   if (error) return { session: null, error };
   const role = (session.user as { role?: unknown } | undefined)?.role;
+  // SUPER_ADMIN bypasses every allowlist — they can hit any route handler.
+  // Identity predicates (isHR, isBranchManager, ...) are intentionally NOT
+  // affected by this so callers using them as identity checks (e.g. "show
+  // the BM-specific dashboard layout") still behave correctly.
+  if (isSuperAdmin(role)) return { session, error: null };
   if (!hasAnyRole(role, allowed)) {
     return {
       session: null,

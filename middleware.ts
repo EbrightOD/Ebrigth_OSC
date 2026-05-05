@@ -7,6 +7,16 @@ import { normalizeRole, ADMIN_ROLES, MANAGEMENT_ROLES, ROLES, type Role } from "
 //
 // Any path NOT matched here only needs the user to be logged in (enforced by
 // the `authorized` callback below).
+//
+// SUPER_ADMIN is granted everything via an explicit bypass below; you do not
+// need to list SUPER_ADMIN in every allowlist (it's included for clarity).
+//
+// Per-role intent:
+//   BRANCH_MANAGER → /manpower-schedule (+ Inventory tile, gated client-side)
+//   HR             → keeps prior management access EXCEPT /manpower-schedule
+//   ACADEMY        → keeps prior access (+ Inventory tile, client-side)
+//   FULL_TIME / PART_TIME → /manpower-schedule/archive (Manpower Cost Report
+//                   is login-only and reachable as before)
 const ROLE_RULES: Array<{ prefix: string; allowed: readonly Role[] }> = [
   // Admin-only pages (user / account administration). Academy gets in here too,
   // because the user-management route hosts the per-coach edit form they need
@@ -38,6 +48,7 @@ export default withAuth(
     if (!rule) return NextResponse.next();
 
     const role = normalizeRole(req.nextauth.token?.role);
+    if (role === ROLES.SUPER_ADMIN) return NextResponse.next();
     if (role && rule.allowed.includes(role)) return NextResponse.next();
 
     // Logged in but wrong role — send to /home with a flag so the UI can
