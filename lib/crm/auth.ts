@@ -274,6 +274,45 @@ async function loadUserById(id: string) {
 
 const originalGetSession = _auth.api.getSession.bind(_auth.api)
 
+/**
+ * Returns the impersonated user IFF:
+ *   - cookie `crm_preview_user` is set, AND
+ *   - the *real* session belongs to a SUPER_ADMIN / AGENCY_ADMIN, OR we're
+ *     in dev preview mode (which doesn't require auth).
+ *
+ * Used to layer impersonation on top of any normal session — the dropdown
+ * in the topbar's "Login as user" picker uses this.
+ */
+async function tryImpersonate(
+  headers: Headers,
+  realUserId: string | null,
+  previewMode: boolean,
+): Promise<ReturnType<typeof synthSession> | null> {
+  if (parseCookie(headers, 'crm_preview_exit') === '1') return null
+  const targetId = parseCookie(headers, 'crm_preview_user')
+  if (!targetId || targetId === realUserId) return null
+
+  // Dev preview mode bypasses the auth check (no real user needed).
+  if (!previewMode) {
+    if (!realUserId) return null
+    try {
+      const elevated = await prisma.crm_user_branch.findFirst({
+        where: {
+          userId: realUserId,
+          role: { in: ['SUPER_ADMIN', 'AGENCY_ADMIN'] },
+        },
+        select: { id: true },
+      })
+      if (!elevated) return null
+    } catch {
+      return null
+    }
+  }
+
+  const u = await loadUserById(targetId)
+  return u ? synthSession(u) : null
+}
+
 _auth.api.getSession = (async (...args: Parameters<typeof originalGetSession>) => {
   const headers = (args[0] as { headers?: Headers } | undefined)?.headers
   // Hard-gates the preview bypass when NODE_ENV=production. See lib/crm/preview-mode.ts.
@@ -286,7 +325,12 @@ _auth.api.getSession = (async (...args: Parameters<typeof originalGetSession>) =
     const fromNextAuth = await readNextAuthEmail(headers)
     if (fromNextAuth) {
       const u = await getOrCreateCrmUserForEmail(fromNextAuth.email, fromNextAuth.name)
-      if (u) return synthSession(u)
+      if (u) {
+        // If the SSO'd user is a super admin and has set an impersonation
+        // cookie, return the impersonated session instead of their own.
+        const imp = await tryImpersonate(headers, u.id, previewMode)
+        return imp ?? synthSession(u)
+      }
     }
   }
 
@@ -300,7 +344,15 @@ _auth.api.getSession = (async (...args: Parameters<typeof originalGetSession>) =
       parseCookie(headers, '__Secure-better-auth.session_token') !== undefined)
 
   const real = previewMode && !hasSessionCookie ? null : await originalGetSession(...args)
-  if (real) return real
+  if (real) {
+    // Layer impersonation on top of a Better Auth session too.
+    if (headers) {
+      const realUserId = (real as { user?: { id?: string } }).user?.id ?? null
+      const imp = await tryImpersonate(headers, realUserId, previewMode)
+      if (imp) return imp
+    }
+    return real
+  }
   if (!previewMode) return real
 
   if (headers) {

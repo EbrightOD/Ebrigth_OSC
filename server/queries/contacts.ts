@@ -7,7 +7,16 @@ import type { Prisma } from '@prisma/client'
 
 export interface ContactsFilter {
   search?: string
+  /** Single-branch filter (user-selected dropdown). Admins use this freely. */
   branchId?: string
+  /**
+   * Allowed-branch hard limit. When set, the query is restricted to contacts
+   * whose `branchId` is in this list — non-elevated users (BRANCH_MANAGER /
+   * BRANCH_STAFF) pass their own assigned branches here so they can never
+   * fetch contacts outside their scope. Admins (elevated) leave it undefined
+   * to see everything in the tenant.
+   */
+  branchIds?: string[]
   stageId?: string
   leadSourceId?: string
   assignedUserId?: string
@@ -69,7 +78,19 @@ export async function getContactsByTenant(
     deletedAt: null,
   }
 
-  if (filter.branchId) baseWhere.branchId = filter.branchId
+  // Branch scoping: if both filters are set, intersect them. branchIds is the
+  // hard server-enforced gate; branchId is a user-selected refinement.
+  if (filter.branchId && filter.branchIds?.length) {
+    if (!filter.branchIds.includes(filter.branchId)) {
+      // User asked for a branch they're not allowed to see — return empty set
+      return { data: [], total: 0, page, pageSize }
+    }
+    baseWhere.branchId = filter.branchId
+  } else if (filter.branchId) {
+    baseWhere.branchId = filter.branchId
+  } else if (filter.branchIds?.length) {
+    baseWhere.branchId = { in: filter.branchIds }
+  }
   if (filter.leadSourceId) baseWhere.leadSourceId = filter.leadSourceId
   if (filter.assignedUserId) baseWhere.assignedUserId = filter.assignedUserId
 

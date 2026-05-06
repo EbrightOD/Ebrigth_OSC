@@ -27,6 +27,7 @@ export type AuditAction =
   | 'EXPORT'
   | 'IMPORT'
   | 'ASSIGN'
+  | 'IMPERSONATE'
 
 export interface AuditParams {
   /** CRM tenant identifier. Optional for system-level events. */

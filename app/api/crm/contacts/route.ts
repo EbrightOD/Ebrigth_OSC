@@ -5,12 +5,21 @@ import { prisma } from '@/lib/crm/db'
 import { getContactsByTenant } from '@/server/queries/contacts'
 import { CreateContactSchema } from '@/lib/crm/validations/contact'
 import { createContact } from '@/server/actions/contacts'
+import { resolveBranchAccess } from '@/lib/crm/branch-access'
 import { createHash } from 'crypto'
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 
-async function resolveTenantId(req: NextRequest): Promise<string | null> {
-  // Try API key first
+/**
+ * Returns tenant + (when applicable) branch scope for the caller.
+ * - API key → tenant only, treated as elevated (full tenant visibility)
+ * - User session → tenant + user's allowed branches (or null to mean "no limit"
+ *   when the user is super/agency admin)
+ */
+async function resolveScope(req: NextRequest): Promise<
+  | { tenantId: string; allowedBranchIds: string[] | null }
+  | null
+> {
   const apiKey = req.headers.get('x-api-key')
   if (apiKey) {
     const hashed = createHash('sha256').update(apiKey, 'utf8').digest('hex')
@@ -18,33 +27,40 @@ async function resolveTenantId(req: NextRequest): Promise<string | null> {
       where: { hashedKey: hashed },
       select: { tenantId: true, revokedAt: true },
     })
-    if (keyRecord && !keyRecord.revokedAt) return keyRecord.tenantId
+    if (keyRecord && !keyRecord.revokedAt) {
+      return { tenantId: keyRecord.tenantId, allowedBranchIds: null }
+    }
   }
 
-  // Fall back to session
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user?.id) return null
 
-  const userBranch = await prisma.crm_user_branch.findFirst({
-    where: { userId: session.user.id },
-    select: { tenantId: true },
-  })
-  return userBranch?.tenantId ?? null
+  const access = await resolveBranchAccess(session.user.id)
+  if (!access) return null
+
+  return {
+    tenantId: access.tenantId,
+    // Elevated users see every branch — pass null to mean "no restriction".
+    allowedBranchIds: access.elevated ? null : access.branchIds,
+  }
 }
 
 // ─── GET /api/crm/contacts ────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   try {
-    const tenantId = await resolveTenantId(req)
-    if (!tenantId) {
+    const scope = await resolveScope(req)
+    if (!scope) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const sp = req.nextUrl.searchParams
-    const result = await getContactsByTenant(tenantId, {
+    const result = await getContactsByTenant(scope.tenantId, {
       search: sp.get('search') ?? undefined,
       branchId: sp.get('branchId') ?? undefined,
+      // Server-enforced branch limit. Elevated users get null → no limit.
+      // Non-elevated users get their own branchIds → can never see beyond.
+      branchIds: scope.allowedBranchIds ?? undefined,
       stageId: sp.get('stageId') ?? undefined,
       leadSourceId: sp.get('leadSourceId') ?? undefined,
       assignedUserId: sp.get('assignedUserId') ?? undefined,
@@ -66,10 +82,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const tenantId = await resolveTenantId(req)
-    if (!tenantId) {
+    const scope = await resolveScope(req)
+    if (!scope) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    const tenantId = scope.tenantId
 
     const body = await req.json()
     const parsed = CreateContactSchema.safeParse(body)

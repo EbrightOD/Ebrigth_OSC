@@ -8,6 +8,7 @@ import { createHash } from 'crypto'
 import { startOfMonth, startOfQuarter, subDays, startOfDay, endOfDay } from 'date-fns'
 import { toZonedTime, fromZonedTime } from 'date-fns-tz'
 import { isPreviewMode } from '@/lib/crm/preview-mode'
+import { resolveBranchAccess } from '@/lib/crm/branch-access'
 
 const KL_TZ = 'Asia/Kuala_Lumpur'
 
@@ -121,10 +122,26 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const { preset, from, to, branchId } = parsed.data
+    const { preset, from, to, branchId: requestedBranchId } = parsed.data
     const dateRange = presetToRange(preset, from, to)
 
-    const stats = await getDashboardStats(tenantId, dateRange, branchId)
+    // Hard-scope non-elevated users to their own branch. Even if they craft
+    // a request without `branchId`, the dashboard returns *only* their data.
+    let effectiveBranchId = requestedBranchId
+    const session = await auth.api.getSession({ headers: await headers() })
+    if (session?.user?.id) {
+      const access = await resolveBranchAccess(session.user.id)
+      if (access && !access.elevated) {
+        if (requestedBranchId && !access.branchIds.includes(requestedBranchId)) {
+          // User asked for a branch they don't have access to.
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        }
+        // Fall back to their primary branch if no specific request.
+        effectiveBranchId = requestedBranchId ?? access.primaryBranchId ?? access.branchIds[0]
+      }
+    }
+
+    const stats = await getDashboardStats(tenantId, dateRange, effectiveBranchId)
     return NextResponse.json(stats)
   } catch (err) {
     console.error('[GET /api/crm/dashboard]', err)

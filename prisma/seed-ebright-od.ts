@@ -195,6 +195,48 @@ async function main() {
   }
   console.log(`✓ Password set   admin123 (bcrypt cost 10)`)
 
+  // 5b. Mirror the user into the local HRMS-style `User` table so NextAuth's
+  // /login page can authenticate them. lib/nextauth.ts does:
+  //   1. SELECT from crm.hrfs_users (FDW view of HRFS) — for production users
+  //   2. fall back to local crm_db.public."User"
+  // Stress-test users live in the local fallback so we don't have to touch HRFS.
+  const existingHrUser = await prisma.user.findUnique({
+    where: { email: USER.email },
+    select: { id: true },
+  })
+  if (existingHrUser) {
+    await prisma.user.update({
+      where: { id: existingHrUser.id },
+      data: {
+        passwordHash,
+        role: 'BRANCH_MANAGER',
+        branchName: BRANCH_NAME,
+        name: USER.name,
+        status: 'ACTIVE',
+      },
+    })
+    console.log(`✓ HRMS User row  updated (id=${existingHrUser.id})`)
+  } else {
+    const u = await prisma.user.create({
+      data: {
+        email: USER.email,
+        passwordHash,
+        role: 'BRANCH_MANAGER',
+        branchName: BRANCH_NAME,
+        name: USER.name,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    })
+    console.log(`✓ HRMS User row  created (id=${u.id})`)
+  }
+
+  // Same cleanup for old emails in the local User table.
+  for (const oldEmail of PRIOR_EMAILS) {
+    if (oldEmail === USER.email) continue
+    await prisma.user.deleteMany({ where: { email: oldEmail } })
+  }
+
   // 6. Branch link with BRANCH_MANAGER role
   const existingLink = await prisma.crm_user_branch.findFirst({
     where: { userId: user.id, branchId: branch.id },
