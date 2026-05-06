@@ -123,7 +123,7 @@ export default function NewEventPage() {
         <h1 className="fa-display-italic text-6xl text-ink-900">Create Foundation Appraisal</h1>
         <hr className="border-0 border-t border-gold-200 mt-5 mb-4" />
         <p className="text-sm text-ink-500">
-          Fill in the event details. You'll add sessions and branch quotas on the next screen.
+          Fill in the event details. You&apos;ll add sessions and branch quotas on the next screen.
         </p>
       </div>
 
@@ -322,7 +322,7 @@ export default function NewEventPage() {
             </dl>
 
             <div className="mt-5 pt-4 border-t border-gold-200 text-xs text-ink-500">
-              After creating, you'll add <strong className="text-ink-600">sessions</strong> and
+              After creating, you&apos;ll add <strong className="text-ink-600">sessions</strong> and
               assign <strong className="text-ink-600">branch quotas</strong> before opening the event to BMs.
             </div>
           </div>
