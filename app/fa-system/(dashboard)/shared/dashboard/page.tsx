@@ -368,8 +368,8 @@ export default function DashboardPage() {
               <tbody>
                 {eventStats.map(({ event, sessions, totalQuota, invited, confirmed, attended, noShow, fillRate }) => {
                   const link = user.role === "MKT"
-                    ? `/marketing/events/${event.id}`
-                    : `/bm/events/${event.id}`;
+                    ? `/fa-system/marketing/events/${event.id}`
+                    : `/fa-system/bm/events/${event.id}`;
                   return (
                     <tr key={event.id}>
                       <td>

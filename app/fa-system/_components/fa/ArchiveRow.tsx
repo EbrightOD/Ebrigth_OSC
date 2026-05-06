@@ -27,7 +27,7 @@ export function ArchiveRow({ event, sessionCount, invitationCount, quotaTotal, i
       }
     >
     <Link
-      href={`/marketing/events/${event.id}`}
+      href={`/fa-system/marketing/events/${event.id}`}
       className={`flex items-center gap-5 px-5 py-3 bg-ivory-100 hover:bg-ivory-50 transition-colors ${
         isLast ? "" : "border-b border-gold-200"
       }`}

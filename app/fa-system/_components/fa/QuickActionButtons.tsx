@@ -68,7 +68,7 @@ export function QuickActionButtons({ eventId, onView, onEdit }: QuickActionButto
           </button>
         ) : (
           <Link
-            href={`/marketing/events/${eventId}`}
+            href={`/fa-system/marketing/events/${eventId}`}
             className={buttonClass}
             aria-label="View event details"
             title="View details"
@@ -88,7 +88,7 @@ export function QuickActionButtons({ eventId, onView, onEdit }: QuickActionButto
           </button>
         ) : (
           <Link
-            href={`/marketing/events/${eventId}`}
+            href={`/fa-system/marketing/events/${eventId}`}
             className={buttonClass}
             aria-label="Edit event"
             title="Edit event"

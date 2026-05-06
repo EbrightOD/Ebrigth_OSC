@@ -164,7 +164,7 @@ export default function BMEventsPage() {
             return (
               <Link
                 key={event.id}
-                href={`/bm/events/${event.id}`}
+                href={`/fa-system/bm/events/${event.id}`}
                 className={`fa-card-hover p-5 block ${needsAction ? "border-warning/40" : ""}`}
               >
                 <div className="flex items-center gap-5">

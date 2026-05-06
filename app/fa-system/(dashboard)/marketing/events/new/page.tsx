@@ -103,7 +103,7 @@ export default function NewEventPage() {
       notes: form.notes.trim() || undefined,
     });
 
-    router.push(`/marketing/events/${created.id}`);
+    router.push(`/fa-system/marketing/events/${created.id}`);
   }
 
   return (

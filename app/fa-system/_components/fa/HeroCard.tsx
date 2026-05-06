@@ -32,7 +32,7 @@ export function HeroCard({ event, sessionCount, invitationCount, quotaTotal, onV
       }
     >
     <div className="group relative">
-    <Link href={`/marketing/events/${event.id}`} className="fa-card-hover block">
+    <Link href={`/fa-system/marketing/events/${event.id}`} className="fa-card-hover block">
       <div className="p-8 flex items-center gap-8">
 
         {/* Monumental mono date */}

@@ -33,7 +33,7 @@ export function EventRow({ event, sessionCount, invitationCount, quotaTotal, onV
     >
     <div className="group relative">
     <Link
-      href={`/marketing/events/${event.id}`}
+      href={`/fa-system/marketing/events/${event.id}`}
       className="fa-card-hover flex items-center gap-5 px-5 py-4"
     >
       {/* Compact date block */}

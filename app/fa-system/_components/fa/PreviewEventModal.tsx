@@ -123,7 +123,7 @@ export function PreviewEventModal({ open, onClose, event }: PreviewEventModalPro
       <div className="flex justify-end gap-2 pt-2 border-t border-gold-200 mt-2">
         <button onClick={onClose} className="fa-btn-secondary">Close</button>
         <Link
-          href={`/marketing/events/${event.id}`}
+          href={`/fa-system/marketing/events/${event.id}`}
           className="fa-btn-primary"
           onClick={onClose}
         >
