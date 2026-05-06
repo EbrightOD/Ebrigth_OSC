@@ -24,6 +24,7 @@ jobs:
             export BETTER_AUTH_SECRET='${{ secrets.BETTER_AUTH_SECRET }}'
             export ENCRYPTION_KEY='${{ secrets.ENCRYPTION_KEY }}'
             export DATABASE_URL='${{ secrets.DATABASE_URL }}'
+            export CRM_PREVIEW_MODE='${{ secrets.CRM_PREVIEW_MODE }}'
             /home/deploy/deploy.sh osc
 
   smoke-tests:
