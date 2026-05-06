@@ -102,13 +102,19 @@ for (const check of CHECKS) {
 const critical = failures.filter((f) => f.severity === 'critical')
 const warnings = failures.filter((f) => f.severity === 'warning')
 
-if (warnings.length > 0) {
+// Skip reporting/exit during `next build`. None of the checked secrets are
+// inlined into the bundle (no NEXT_PUBLIC_*), so the build doesn't need
+// real values. The runtime container runs this same module at startup with
+// values loaded from env_file, where missing secrets still fail loudly.
+const isBuild = process.env.NEXT_PHASE === 'phase-production-build'
+
+if (!isBuild && warnings.length > 0) {
   console.warn('\n⚠  Environment variable warnings:')
   for (const w of warnings) console.warn(`   • ${w.name} — ${w.reason}`)
   console.warn('')
 }
 
-if (critical.length > 0) {
+if (!isBuild && critical.length > 0) {
   console.error('\n✗ Refusing to start: invalid environment variables.\n')
   for (const f of critical) {
     console.error(`   ✗ ${f.name} — ${f.reason}`)
