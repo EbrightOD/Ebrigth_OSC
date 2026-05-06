@@ -42,10 +42,15 @@ const TENANT_SLUG = 'ebright'
 const BRANCH_NAME = '00 Ebright OD'
 
 const USER = {
-  email: 'od@ebright.com',
-  name:  'OD Branch Manager',
+  email: 'test@ebright.my',
+  name:  'OD Test Branch Manager',
   password: 'admin123',
 }
+
+// Old emails the seed used previously. We delete the auth row + branch link
+// for any of these on each run, so re-running the script with a changed
+// USER.email cleans up old test accounts instead of leaving orphans.
+const PRIOR_EMAILS = ['od@ebright.com']
 
 const STAGES = [
   { name: 'New Lead',              shortCode: 'NL',    color: 'slate'   },
@@ -129,6 +134,24 @@ async function main() {
     }
   }
   console.log(`✓ Pipeline       ${BRANCH_NAME} (${STAGES.length} stages)`)
+
+  // 3b. Clean up old test accounts whose email we've since changed.
+  // Prevents stale "od@ebright.com" rows hanging around after we renamed.
+  for (const oldEmail of PRIOR_EMAILS) {
+    if (oldEmail === USER.email) continue
+    const old = await prisma.crm_auth_user.findFirst({
+      where: { email: oldEmail },
+      select: { id: true },
+    })
+    if (old) {
+      // crm_user_branch + crm_auth_account both reference the user.
+      await prisma.crm_user_branch.deleteMany({ where: { userId: old.id } })
+      await prisma.crm_auth_account.deleteMany({ where: { userId: old.id } })
+      await prisma.crm_auth_session.deleteMany({ where: { userId: old.id } })
+      await prisma.crm_auth_user.delete({ where: { id: old.id } })
+      console.log(`✓ Cleaned up     ${oldEmail} (${old.id})`)
+    }
+  }
 
   // 4. Auth user
   const existingUser = await prisma.crm_auth_user.findFirst({

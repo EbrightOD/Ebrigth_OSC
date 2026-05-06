@@ -129,6 +129,7 @@ export function emptySchema(): FormSchemaV2 {
             required: true,
             placeholder: 'Please select',
             options: [
+              '00 Ebright OD',
               '01 Ebright Public Speaking (Rimbayu)',
               '02 Ebright Public Speaking (Klang)',
               '03 Ebright Public Speaking (Shah Alam)',
