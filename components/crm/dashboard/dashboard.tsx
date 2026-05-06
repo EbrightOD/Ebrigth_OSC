@@ -26,6 +26,13 @@ interface MetricsResponse {
   regions: { A: BranchMetrics; B: BranchMetrics; C: BranchMetrics }
   branches: BranchMetrics[]
   regionMap: { A: string[]; B: string[]; C: string[] }
+  /**
+   * True for super_admin / agency_admin. When false the dashboard renders only
+   * the Main metrics block (the user's own branch) and hides the regional cards
+   * + per-branch chart + per-branch table — which would just show their own
+   * branch over and over for a single-branch user.
+   */
+  elevated?: boolean
 }
 
 type Preset = 'today' | 'yesterday' | '7d' | 'this_week' | '30d'
@@ -97,35 +104,46 @@ export function DashboardClient() {
         </div>
       ) : (
         <>
-          <MetricsBlock title="Main" subtitle="Overall pipeline" metrics={data.main} accent="indigo" />
+          <MetricsBlock
+            title={data.elevated === false ? 'Your branch' : 'Main'}
+            subtitle={data.elevated === false ? 'Pipeline performance' : 'Overall pipeline'}
+            metrics={data.main}
+            accent="indigo"
+          />
 
-          <div className="grid gap-5 lg:grid-cols-3">
-            <MetricsBlock
-              title="Region A"
-              subtitle={data.regionMap.A.join(' · ')}
-              metrics={data.regions.A}
-              accent="rose"
-              compact
-            />
-            <MetricsBlock
-              title="Region B"
-              subtitle={data.regionMap.B.join(' · ')}
-              metrics={data.regions.B}
-              accent="amber"
-              compact
-            />
-            <MetricsBlock
-              title="Region C"
-              subtitle={data.regionMap.C.join(' · ')}
-              metrics={data.regions.C}
-              accent="emerald"
-              compact
-            />
-          </div>
+          {/* Elevated-only sections: regional rollup + per-branch comparison.
+              Branch managers see only their own Main block above. */}
+          {data.elevated !== false && (
+            <>
+              <div className="grid gap-5 lg:grid-cols-3">
+                <MetricsBlock
+                  title="Region A"
+                  subtitle={data.regionMap.A.join(' · ')}
+                  metrics={data.regions.A}
+                  accent="rose"
+                  compact
+                />
+                <MetricsBlock
+                  title="Region B"
+                  subtitle={data.regionMap.B.join(' · ')}
+                  metrics={data.regions.B}
+                  accent="amber"
+                  compact
+                />
+                <MetricsBlock
+                  title="Region C"
+                  subtitle={data.regionMap.C.join(' · ')}
+                  metrics={data.regions.C}
+                  accent="emerald"
+                  compact
+                />
+              </div>
 
-          <BranchBarChart branches={data.branches} />
+              <BranchBarChart branches={data.branches} />
 
-          <BranchTable branches={data.branches} />
+              <BranchTable branches={data.branches} />
+            </>
+          )}
         </>
       )}
     </div>
