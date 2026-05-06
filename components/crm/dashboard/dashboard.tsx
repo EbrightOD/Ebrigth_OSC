@@ -3,6 +3,17 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/crm/utils'
+import { useBranchContext } from '@/components/crm/branch-context'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Legend,
+} from 'recharts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +31,14 @@ interface BranchMetrics {
   enrolmentRate: number
 }
 
+interface MonthlyBucket {
+  month: string  // YYYY-MM
+  NL: number
+  CT: number
+  SU: number
+  ENR: number
+}
+
 interface MetricsResponse {
   range: { from: string; to: string }
   main: BranchMetrics
@@ -27,12 +46,16 @@ interface MetricsResponse {
   branches: BranchMetrics[]
   regionMap: { A: string[]; B: string[]; C: string[] }
   /**
-   * True for super_admin / agency_admin. When false the dashboard renders only
-   * the Main metrics block (the user's own branch) and hides the regional cards
-   * + per-branch chart + per-branch table — which would just show their own
-   * branch over and over for a single-branch user.
+   * True for super_admin / agency_admin **viewing all branches**. Goes false
+   * when (a) caller is BRANCH_MANAGER / BRANCH_STAFF or (b) caller is admin
+   * but picked a specific branch in the topbar dropdown. Either way the UI
+   * collapses to the "branch view": Main block + line chart, no regions.
    */
   elevated?: boolean
+  /** 6-month NL/CT/SU/ENR buckets — populated for branch view only. */
+  byMonth?: MonthlyBucket[]
+  /** Branch name when scoped, used as the title of the Main block. */
+  scopedBranchName?: string | null
 }
 
 type Preset = 'today' | 'yesterday' | '7d' | 'this_week' | '30d'
@@ -49,11 +72,17 @@ const PRESETS: Array<{ key: Preset; label: string }> = [
 
 export function DashboardClient() {
   const [preset, setPreset] = useState<Preset>('today')
+  const { selectedBranch } = useBranchContext()
+  // When an admin picks a branch from the topbar, send branchId so the API
+  // returns that branch's metrics + monthly trend (admin-as-branch view).
+  const branchId = selectedBranch?.id ?? null
 
   const { data, isLoading } = useQuery<MetricsResponse>({
-    queryKey: ['crm', 'dashboard', 'leads-metrics', preset],
+    queryKey: ['crm', 'dashboard', 'leads-metrics', preset, branchId],
     queryFn: async () => {
-      const res = await fetch(`/api/crm/dashboard/leads-metrics?preset=${preset}`)
+      const params = new URLSearchParams({ preset })
+      if (branchId) params.set('branchId', branchId)
+      const res = await fetch(`/api/crm/dashboard/leads-metrics?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to load metrics')
       return res.json()
     },
@@ -105,14 +134,20 @@ export function DashboardClient() {
       ) : (
         <>
           <MetricsBlock
-            title={data.elevated === false ? 'Your branch' : 'Main'}
+            title={data.elevated === false ? (data.scopedBranchName ?? 'Your branch') : 'Main'}
             subtitle={data.elevated === false ? 'Pipeline performance' : 'Overall pipeline'}
             metrics={data.main}
             accent="indigo"
           />
 
-          {/* Elevated-only sections: regional rollup + per-branch comparison.
-              Branch managers see only their own Main block above. */}
+          {/* Branch view (BM users + admins viewing a single branch via the
+              topbar picker): show a 6-month line chart instead of the
+              regional + per-branch sections. */}
+          {data.elevated === false && data.byMonth && data.byMonth.length > 0 && (
+            <LeadsByMonthChart data={data.byMonth} />
+          )}
+
+          {/* Elevated-only sections: regional rollup + per-branch comparison. */}
           {data.elevated !== false && (
             <>
               <div className="grid gap-5 lg:grid-cols-3">
@@ -339,6 +374,105 @@ function LoadingSkeleton() {
         <div className="h-48 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
       </div>
       <div className="h-72 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+    </div>
+  )
+}
+
+// ─── Leads by month (branch view only) ────────────────────────────────────────
+
+function LeadsByMonthChart({ data }: { data: MonthlyBucket[] }) {
+  // Pretty month label: "2026-05" → "May 2026"
+  const chartData = useMemo(
+    () =>
+      data.map((b) => {
+        const d = new Date(`${b.month}-01T00:00:00Z`)
+        const label = d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+        return { ...b, label }
+      }),
+    [data],
+  )
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Leads by Month
+        </h2>
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+          <LegendDot color="bg-indigo-500" label="New Leads" />
+          <LegendDot color="bg-emerald-500" label="Confirmed" />
+          <LegendDot color="bg-amber-500" label="Show-Up" />
+          <LegendDot color="bg-rose-500" label="Enrolled" />
+        </div>
+      </div>
+      <div className="h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 0 }}>
+            <CartesianGrid stroke="currentColor" strokeOpacity={0.1} vertical={false} />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11, fill: 'currentColor', fillOpacity: 0.6 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: 'currentColor', fillOpacity: 0.6 }}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                borderRadius: 8,
+                color: '#f1f5f9',
+                fontSize: 12,
+                padding: '8px 12px',
+              }}
+              labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+              cursor={{ stroke: 'rgba(99, 102, 241, 0.4)', strokeWidth: 1 }}
+            />
+            <Legend wrapperStyle={{ display: 'none' }} />
+            <Line
+              type="monotone"
+              dataKey="NL"
+              name="New Leads"
+              stroke="#6366f1"
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: '#6366f1' }}
+              activeDot={{ r: 6 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="CT"
+              name="Confirmed"
+              stroke="#10b981"
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#10b981' }}
+              activeDot={{ r: 5 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="SU"
+              name="Show-Up"
+              stroke="#f59e0b"
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#f59e0b' }}
+              activeDot={{ r: 5 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="ENR"
+              name="Enrolled"
+              stroke="#f43f5e"
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#f43f5e' }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 }

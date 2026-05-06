@@ -127,7 +127,11 @@ function BranchSwitcher({ user }: { user: SessionUser }) {
     ? 'Loading…'
     : selectedBranch?.address ??
       (isAdmin
-        ? `Viewing all ${branches.length || '—'} branches`
+        // Admin who picked a specific branch is essentially impersonating the
+        // branch-manager view — clearer than "Viewing all 23 branches".
+        ? selectedBranch
+          ? `Viewing as ${selectedBranch.name.replace(/^\d+\s+/, '')}`
+          : `Viewing all ${branches.length || '—'} branches`
         : branches.length > 1
           ? `Viewing ${branches.length} accessible branches`
           : 'Your branch'

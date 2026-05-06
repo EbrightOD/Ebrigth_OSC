@@ -186,8 +186,21 @@ export async function GET(req: NextRequest) {
     // come back empty so the UI hides those sections entirely.
     const session = await auth.api.getSession({ headers: await headers() })
     const access = session?.user?.id ? await resolveBranchAccess(session.user.id) : null
-    const elevated = access?.elevated ?? true   // API key callers (no access row) treated as elevated
-    const allowedBranchIds = elevated ? null : (access?.branchIds ?? [])
+    const isElevatedUser = access?.elevated ?? true   // API key callers treated as elevated
+
+    // Admin "view as branch": when an elevated user picks a specific branch
+    // in the topbar dropdown, the UI sends `?branchId=<id>` and we treat the
+    // request the same as if a branch manager for that branch were calling.
+    // This lets super admins inspect a branch without logging out.
+    const requestedBranchId = req.nextUrl.searchParams.get('branchId')
+    const viewAsBranch = isElevatedUser && requestedBranchId ? requestedBranchId : null
+
+    const elevated = isElevatedUser && !viewAsBranch
+    const allowedBranchIds = elevated
+      ? null
+      : viewAsBranch
+        ? [viewAsBranch]
+        : (access?.branchIds ?? [])
 
     const range = parseDateRange(req.nextUrl.searchParams)
     // Clamp the lower bound to the global display floor so this endpoint
@@ -341,6 +354,57 @@ export async function GET(req: NextRequest) {
       })
       .filter((x): x is BranchMetrics => !!x)
 
+    // ── Monthly trend (only for branch-scoped views) ─────────────────────────
+    // Build a 6-month rolling window ending on `to` so the line chart has
+    // enough span to be useful. Bucket each opp's createdAt by YYYY-MM and
+    // re-apply the same cumulative-stage logic used for the main block.
+    let byMonth: Array<{ month: string; NL: number; CT: number; SU: number; ENR: number }> = []
+    if (!elevated) {
+      const monthKey = (d: Date) => d.toISOString().slice(0, 7) // 'YYYY-MM'
+      const sixMonthsBack = new Date(to)
+      sixMonthsBack.setMonth(sixMonthsBack.getMonth() - 5)
+      sixMonthsBack.setDate(1)
+      sixMonthsBack.setHours(0, 0, 0, 0)
+
+      // Re-fetch for the wider window — `from`/`to` may be just "today".
+      const trendOpps = await prisma.crm_opportunity.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          createdAt: { gte: sixMonthsBack, lte: to },
+          branchId: { in: branches.map((b) => b.id) },
+        },
+        select: { branchId: true, stageId: true, createdAt: true },
+      })
+
+      const monthMap = new Map<string, { NL: number; CT: number; SU: number; ENR: number }>()
+      // Pre-seed every month so the chart shows zeros instead of gaps.
+      for (let m = 0; m < 6; m++) {
+        const d = new Date(sixMonthsBack)
+        d.setMonth(d.getMonth() + m)
+        monthMap.set(monthKey(d), { NL: 0, CT: 0, SU: 0, ENR: 0 })
+      }
+
+      for (const o of trendOpps) {
+        const key = monthKey(new Date(o.createdAt))
+        const bucket = monthMap.get(key)
+        if (!bucket) continue
+        const info = stageInfo.get(o.stageId)
+        if (!info) continue
+        const catOrders = categoryOrderByPipeline.get(info.pipelineId)
+        if (!catOrders) continue
+
+        bucket.NL += 1
+        if (catOrders.CT  !== undefined && info.order >= catOrders.CT)  bucket.CT  += 1
+        if (catOrders.SU  !== undefined && info.order >= catOrders.SU)  bucket.SU  += 1
+        if (catOrders.ENR !== undefined && info.order >= catOrders.ENR) bucket.ENR += 1
+      }
+
+      byMonth = Array.from(monthMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, v]) => ({ month, ...v }))
+    }
+
     // Empty zero block — used in place of regional cards / branch lists for
     // non-elevated users so the response shape stays the same but the UI
     // can detect "nothing to render here" cheaply.
@@ -364,6 +428,10 @@ export async function GET(req: NextRequest) {
           }
         : { A: [], B: [], C: [] },
       elevated,
+      byMonth,
+      // Surface what branch the response is scoped to so the UI can label
+      // the "Your branch" block ("Viewing as Rimbayu" etc.).
+      scopedBranchName: elevated ? null : (branches[0]?.name ?? null),
     })
   } catch (e) {
     console.error('[GET leads-metrics]', e)
