@@ -46,6 +46,7 @@ const TENANT_NAME = 'Ebright Sdn Bhd'
 
 const BRANCHES = [
   'Ebright HR',
+  '00 Ebright OD',
   '01 Ebright Public Speaking (Rimbayu)',
   '02 Ebright Public Speaking (Klang)',
   '03 Ebright Public Speaking (Shah Alam)',

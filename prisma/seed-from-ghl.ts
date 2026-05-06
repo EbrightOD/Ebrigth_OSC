@@ -42,6 +42,7 @@ const DRY_RUN = process.argv.includes('--dry-run')
 // Pulled from leads-metrics route — same mapping the dashboard uses.
 
 const BRANCH_BY_CODE: Record<string, string> = {
+  OD:   '00 Ebright OD',
   RBY:  '01 Ebright Public Speaking (Rimbayu)',
   KLG:  '02 Ebright Public Speaking (Klang)',
   SHA:  '03 Ebright Public Speaking (Shah Alam)',

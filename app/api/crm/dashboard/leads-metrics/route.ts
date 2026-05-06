@@ -45,6 +45,7 @@ async function resolveTenantId(): Promise<string | null> {
 /** Branch short-code lookup — matches the Data Studio labels */
 // Keys are stored branch names (prefixed after rename migration).
 const BRANCH_CODES: Record<string, string> = {
+  '00 Ebright OD': 'OD',
   '01 Ebright Public Speaking (Rimbayu)': 'RBY',
   '02 Ebright Public Speaking (Klang)': 'KLG',
   '03 Ebright Public Speaking (Shah Alam)': 'SHA',
