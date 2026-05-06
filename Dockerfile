@@ -1,9 +1,3 @@
-# Build-time secrets — must match the GitHub Actions workflow that passes them in.
-ARG NEXTAUTH_SECRET
-ARG BETTER_AUTH_SECRET
-ARG ENCRYPTION_KEY
-ARG DATABASE_URL
-
 FROM node:20-alpine
 WORKDIR /app
 RUN apk add --no-cache openssl && \
@@ -20,14 +14,24 @@ RUN npx prisma generate
 
 COPY --chown=nodejs:nodejs . .
 
-# Skip the env validator at build time — none of these secrets are inlined
-# into the bundle, so the build doesn't need real values. The runtime
-# container still validates them at startup via env_file.
+# Build-time env.
+#
+# SKIP_ENV_VALIDATION=1 short-circuits the lib/env.ts validator — none of
+# the checked secrets are inlined into the bundle (no NEXT_PUBLIC_*), so
+# the build doesn't need real values. The runtime container still
+# validates them at startup via env_file.
+#
+# DATABASE_URL is set to a placeholder because lib/prisma.ts reads
+# process.env.DATABASE_URL at module top and throws if it's missing.
+# Prisma doesn't open a connection during `next build`, but it does parse
+# the URL when the client is constructed. Real DATABASE_URL is injected
+# at container start.
+#
+# The previous ARG plumbing (declared before FROM, referenced as ${...} in
+# this RUN) was a no-op — ARGs above FROM aren't visible inside the build
+# stage, so values were always empty. Removed to avoid confusion.
 RUN SKIP_ENV_VALIDATION=1 \
-    NEXTAUTH_SECRET=${NEXTAUTH_SECRET} \
-    BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
-    ENCRYPTION_KEY=${ENCRYPTION_KEY} \
-    DATABASE_URL=${DATABASE_URL} \
+    DATABASE_URL=postgres://buildtime:buildtime@127.0.0.1:5432/buildtime \
     npm run build
 
 EXPOSE 3000
