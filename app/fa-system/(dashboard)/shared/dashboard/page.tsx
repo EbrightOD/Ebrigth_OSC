@@ -297,11 +297,11 @@ export default function DashboardPage() {
                 <thead>
                   <tr>
                     <th>Branch</th>
-                    <th className="text-right">Invited</th>
-                    <th className="text-right">Confirmed</th>
-                    <th className="text-right">Attended</th>
-                    <th className="text-right">Absent</th>
-                    <th className="text-right">Absence rate</th>
+                    <th className="text-center">Invited</th>
+                    <th className="text-center">Confirmed</th>
+                    <th className="text-center">Attended</th>
+                    <th className="text-center">Absent</th>
+                    <th className="text-center">Absence rate</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -315,11 +315,11 @@ export default function DashboardPage() {
                           <span className="text-ink-900">{row.branch.name}</span>
                         </div>
                       </td>
-                      <td className="text-right font-mono">{row.invited}</td>
-                      <td className="text-right font-mono">{row.confirmed}</td>
-                      <td className="text-right font-mono text-success font-medium">{row.attended}</td>
-                      <td className="text-right font-mono text-danger font-medium">{row.absent}</td>
-                      <td className="text-right font-mono">
+                      <td className="text-center font-mono">{row.invited}</td>
+                      <td className="text-center font-mono">{row.confirmed}</td>
+                      <td className="text-center font-mono text-success font-medium">{row.attended}</td>
+                      <td className="text-center font-mono text-danger font-medium">{row.absent}</td>
+                      <td className="text-center font-mono">
                         {row.attendanceMarked > 0 ? (
                           <span className={`font-semibold ${absenceRateColor(row.absenceRate)}`}>
                             {(row.absenceRate * 100).toFixed(1)}%
@@ -358,11 +358,11 @@ export default function DashboardPage() {
                   <th>Event</th>
                   <th>Date</th>
                   <th>Status</th>
-                  <th className="text-right">Slots</th>
-                  <th className="text-right">Invited</th>
-                  <th className="text-right">Confirmed</th>
-                  <th className="text-right">Attended</th>
-                  <th className="text-right">Fill rate</th>
+                  <th className="text-center">Slots</th>
+                  <th className="text-center">Invited</th>
+                  <th className="text-center">Confirmed</th>
+                  <th className="text-center">Attended</th>
+                  <th className="text-center">Fill rate</th>
                 </tr>
               </thead>
               <tbody>
@@ -391,14 +391,14 @@ export default function DashboardPage() {
                       <td>
                         <EventStatusPill status={event.status} />
                       </td>
-                      <td className="text-right font-mono">{totalQuota}</td>
-                      <td className="text-right font-mono">{invited}</td>
-                      <td className="text-right font-mono">{confirmed}</td>
-                      <td className="text-right font-mono">
+                      <td className="text-center font-mono">{totalQuota}</td>
+                      <td className="text-center font-mono">{invited}</td>
+                      <td className="text-center font-mono">{confirmed}</td>
+                      <td className="text-center font-mono">
                         <span className="text-success font-medium">{attended}</span>
                         {noShow > 0 && <span className="text-danger text-xs"> / {noShow} no-show</span>}
                       </td>
-                      <td className="text-right">
+                      <td className="text-center">
                         <FillRateBar rate={fillRate} />
                       </td>
                     </tr>
@@ -422,12 +422,12 @@ export default function DashboardPage() {
               <thead>
                 <tr>
                   <th>Branch</th>
-                  <th className="text-right">Slots</th>
-                  <th className="text-right">Invited</th>
-                  <th className="text-right">Confirmed</th>
-                  <th className="text-right">Attended</th>
-                  <th className="text-right">Fill rate</th>
-                  <th className="text-right">Attendance rate</th>
+                  <th className="text-center">Slots</th>
+                  <th className="text-center">Invited</th>
+                  <th className="text-center">Confirmed</th>
+                  <th className="text-center">Attended</th>
+                  <th className="text-center">Fill rate</th>
+                  <th className="text-center">Attendance rate</th>
                 </tr>
               </thead>
               <tbody>
@@ -441,12 +441,12 @@ export default function DashboardPage() {
                         <span className="text-ink-900">{b.branch.name}</span>
                       </div>
                     </td>
-                    <td className="text-right font-mono">{b.totalQuota}</td>
-                    <td className="text-right font-mono">{b.invited}</td>
-                    <td className="text-right font-mono">{b.confirmed}</td>
-                    <td className="text-right font-mono text-success font-medium">{b.attended}</td>
-                    <td className="text-right"><FillRateBar rate={b.fillRate} /></td>
-                    <td className="text-right"><FillRateBar rate={b.attendanceRate} tone="success" /></td>
+                    <td className="text-center font-mono">{b.totalQuota}</td>
+                    <td className="text-center font-mono">{b.invited}</td>
+                    <td className="text-center font-mono">{b.confirmed}</td>
+                    <td className="text-center font-mono text-success font-medium">{b.attended}</td>
+                    <td className="text-center"><FillRateBar rate={b.fillRate} /></td>
+                    <td className="text-center"><FillRateBar rate={b.attendanceRate} tone="success" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -475,8 +475,8 @@ function KPICard({
   };
   const c = accent ? accentClasses[accent] : "bg-ivory-200 text-ink-600";
   return (
-    <div className="fa-card p-5">
-      <div className={`w-9 h-9 rounded-[10px] ${c} flex items-center justify-center mb-3`}>
+    <div className="fa-card p-5 text-center">
+      <div className={`w-9 h-9 rounded-[10px] ${c} flex items-center justify-center mb-3 mx-auto`}>
         <Icon className="w-4 h-4" />
       </div>
       <div className="text-xs uppercase tracking-wider font-semibold text-ink-400">{label}</div>
