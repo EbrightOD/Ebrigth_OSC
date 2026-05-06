@@ -6,9 +6,9 @@ import { scopedPrisma } from '@/lib/crm/tenancy'
 import type { CrmUserRole } from '@/lib/crm/permissions'
 import { Resend } from 'resend'
 
-// Lazy-init: constructing Resend at module top crashes `next build`'s
-// page-data collection when RESEND_API_KEY is unset. Same pattern as
-// lib/crm/email.ts. Real key comes from env_file at runtime.
+// Lazy: Resend's constructor throws on an empty key, which would crash
+// `next build`'s page-data step (no env at build time). Only construct on
+// the first send.
 let _resend: Resend | null = null
 function getResend(): Resend {
   return (_resend ??= new Resend(process.env.RESEND_API_KEY ?? 'test-no-api-key'))
