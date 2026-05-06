@@ -106,7 +106,12 @@ const warnings = failures.filter((f) => f.severity === 'warning')
 // inlined into the bundle (no NEXT_PUBLIC_*), so the build doesn't need
 // real values. The runtime container runs this same module at startup with
 // values loaded from env_file, where missing secrets still fail loudly.
+//
+// NEXT_PHASE alone proved unreliable in Next.js 15.5 — the config can be
+// loaded before the phase env is set — so the Dockerfile also sets
+// SKIP_ENV_VALIDATION=1 explicitly on the build step.
 const isBuild = process.env.NEXT_PHASE === 'phase-production-build'
+  || process.env.SKIP_ENV_VALIDATION === '1'
 
 if (!isBuild && warnings.length > 0) {
   console.warn('\n⚠  Environment variable warnings:')

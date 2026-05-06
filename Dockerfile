@@ -20,9 +20,11 @@ RUN npx prisma generate
 
 COPY --chown=nodejs:nodejs . .
 
-# Pass every secret the env validator requires. Without these the build
-# crashes at `import "./lib/env"` inside next.config.ts.
-RUN NEXTAUTH_SECRET=${NEXTAUTH_SECRET} \
+# Skip the env validator at build time — none of these secrets are inlined
+# into the bundle, so the build doesn't need real values. The runtime
+# container still validates them at startup via env_file.
+RUN SKIP_ENV_VALIDATION=1 \
+    NEXTAUTH_SECRET=${NEXTAUTH_SECRET} \
     BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET} \
     ENCRYPTION_KEY=${ENCRYPTION_KEY} \
     DATABASE_URL=${DATABASE_URL} \
