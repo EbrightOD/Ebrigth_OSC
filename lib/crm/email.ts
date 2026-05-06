@@ -18,7 +18,12 @@ import type { TemplateContext } from './template'
 // ---------------------------------------------------------------------------
 
 const apiKey = process.env.CRM_RESEND_API_KEY
-if (!apiKey && process.env.NODE_ENV === 'production') {
+// See lib/crm/auth.ts for why SKIP_ENV_VALIDATION exempts this.
+if (
+  !apiKey &&
+  process.env.NODE_ENV === 'production' &&
+  process.env.SKIP_ENV_VALIDATION !== '1'
+) {
   throw new Error('[CRM] CRM_RESEND_API_KEY environment variable is required in production')
 }
 

@@ -14,7 +14,15 @@ import { prisma } from './db'
 import { isPreviewMode } from './preview-mode'
 
 const secret = process.env.BETTER_AUTH_SECRET
-if (!secret && process.env.NODE_ENV === 'production') {
+// SKIP_ENV_VALIDATION=1 is set during `next build` (see Dockerfile + lib/env.ts).
+// `next build` collects page data with NODE_ENV=production but no real secrets,
+// so this throw would block every build otherwise. Runtime startup still has
+// the secret loaded from env_file, so production servers still fail loudly.
+if (
+  !secret &&
+  process.env.NODE_ENV === 'production' &&
+  process.env.SKIP_ENV_VALIDATION !== '1'
+) {
   throw new Error('[CRM] BETTER_AUTH_SECRET environment variable is required in production')
 }
 
