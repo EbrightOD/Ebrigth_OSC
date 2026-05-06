@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { BRANCH_OPTIONS, ROLE_OPTIONS, CONTRACT_OPTIONS, GENDER_OPTIONS, ROLE_CODES } from "@/lib/constants";
-import { isAdmin, isAcademy } from "@/lib/roles";
+import { isAdmin, isAcademy, hasAnyRole, TRAINING_EDIT_ROLES } from "@/lib/roles";
 import { isInTraining } from "@/lib/training";
 import EmployeeIdInput from "@/app/components/EmployeeIdInput";
 import { splitEmployeeId, composeEmployeeId, isValidSuffix, isValidEmployeeId } from "@/lib/employeeId";
@@ -85,6 +85,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
 
   const academyView = isAcademy(userRole);
   const isAuthorized = isAdmin(userRole) || academyView;
+  const canEditTraining = hasAnyRole(userRole, TRAINING_EDIT_ROLES);
 
   useEffect(() => {
     if (!isAuthorized) { setLoading(false); return; }
@@ -169,9 +170,15 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
       const newEmployeeId = idChanged && idIsComplete
         ? composeEmployeeId(empIdPrefix, empIdSuffix)
         : undefined;
-      const fullPayload = newEmployeeId !== undefined
+      const fullPayload: Partial<User> = newEmployeeId !== undefined
         ? { ...editData, employeeId: newEmployeeId }
-        : editData;
+        : { ...editData };
+      // Server rejects the whole PUT if a non-training-editor (e.g. HR) sends
+      // these keys at all — even unchanged — so omit them from the payload.
+      if (!canEditTraining) {
+        delete fullPayload.trainingStartDate;
+        delete fullPayload.trainingEndDate;
+      }
       const payload = academyView
         ? {
             id: editData.id,
@@ -512,17 +519,19 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
                   </section>
 
                   {/* Training */}
-                  <section>
-                    <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Training</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {inp("Training Start Date", "trainingStartDate", "date")}
-                      {inp("Training End Date", "trainingEndDate", "date")}
-                    </div>
-                    {editData?.trainingStartDate && editData?.trainingEndDate &&
-                      editData.trainingStartDate > editData.trainingEndDate && (
-                      <p className="text-xs text-red-600 mt-2">End date must be on or after start date.</p>
-                    )}
-                  </section>
+                  {canEditTraining && (
+                    <section>
+                      <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wide border-b pb-2 mb-4">Training</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {inp("Training Start Date", "trainingStartDate", "date")}
+                        {inp("Training End Date", "trainingEndDate", "date")}
+                      </div>
+                      {editData?.trainingStartDate && editData?.trainingEndDate &&
+                        editData.trainingStartDate > editData.trainingEndDate && (
+                        <p className="text-xs text-red-600 mt-2">End date must be on or after start date.</p>
+                      )}
+                    </section>
+                  )}
 
                   {/* Emergency Contact */}
                   <section>
