@@ -4,6 +4,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Prisma 6 still requires `url` in the schema (Prisma 7 will move this to
+  // prisma.config.ts entirely). PrismaClient instances also pass an explicit
+  // `datasourceUrl` override at runtime — that path is what Prisma 7 expects,
+  // so the upgrade later is just deleting this line.
   url      = env("DATABASE_URL")
 }
 
@@ -410,6 +414,13 @@ model crm_contact {
   childAge3         String?
   childName4        String?
   childAge4         String?
+  // Idempotency keys for inbound integration ingest. The pair points back at
+  // the source row in ebrightleads_db (e.g. "meta_leads" + "6625556"). The
+  // composite unique constraint makes it impossible to ingest the same lead
+  // twice — the LISTEN/NOTIFY worker and the polling backstop can race freely
+  // without producing duplicates.
+  externalSourceTable String?
+  externalSourceId    String?
   deletedAt         DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -426,6 +437,7 @@ model crm_contact {
   appointments   crm_appointment[]
   automationRuns crm_automation_run[]
 
+  @@unique([tenantId, externalSourceTable, externalSourceId], name: "uq_crm_contact_external_source")
   @@index([tenantId, branchId])
   @@index([tenantId, email])
   @@index([tenantId, phone])

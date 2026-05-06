@@ -99,10 +99,11 @@ export default function LoginPage() {
                   name="username"
                   type="text"
                   required
-                  autoComplete="one-time-code" 
+                  autoComplete="one-time-code"
                   placeholder="Enter your username"
                   className="w-full pl-12 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-blue-200/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   autoFocus
+                  suppressHydrationWarning
                 />
               </div>
             </div>
@@ -123,6 +124,10 @@ export default function LoginPage() {
                   autoComplete="new-password"
                   placeholder="Enter your password"
                   className="w-full pl-12 pr-12 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-blue-200/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  // Browser password managers (1Password / "Verify it's you" / etc.)
+                  // inject extra aria-* attributes after hydration. Without this,
+                  // React logs a hydration mismatch warning that scares devs.
+                  suppressHydrationWarning
                 />
                 <button
                   type="button"

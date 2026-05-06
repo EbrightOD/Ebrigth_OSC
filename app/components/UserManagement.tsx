@@ -170,7 +170,7 @@ export default function UserManagement({ userRole = "" }: UserManagementProps) {
       const newEmployeeId = idChanged && idIsComplete
         ? composeEmployeeId(empIdPrefix, empIdSuffix)
         : undefined;
-      const fullPayload = newEmployeeId !== undefined
+      const fullPayload: Partial<User> = newEmployeeId !== undefined
         ? { ...editData, employeeId: newEmployeeId }
         : editData;
       // HR can edit everything except training fields; strip them so the

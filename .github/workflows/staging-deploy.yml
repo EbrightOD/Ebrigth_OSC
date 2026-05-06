@@ -18,8 +18,14 @@ jobs:
           host: 103.209.156.225
           username: deploy
           key: ${{ secrets.STAGING_SSH_KEY }}
-          command_timeout: 20m
-          script: /home/deploy/deploy.sh osc
+          command_timeout: 45m
+          script: |
+            export NEXTAUTH_SECRET='${{ secrets.NEXTAUTH_SECRET }}'
+            export BETTER_AUTH_SECRET='${{ secrets.BETTER_AUTH_SECRET }}'
+            export ENCRYPTION_KEY='${{ secrets.ENCRYPTION_KEY }}'
+            export DATABASE_URL='${{ secrets.DATABASE_URL }}'
+            export CRM_PREVIEW_MODE='${{ secrets.CRM_PREVIEW_MODE }}'
+            /home/deploy/deploy.sh osc
 
   smoke-tests:
     needs: deploy # Only run tests AFTER deployment succeeds
