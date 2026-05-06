@@ -6,7 +6,13 @@ import { scopedPrisma } from '@/lib/crm/tenancy'
 import type { CrmUserRole } from '@/lib/crm/permissions'
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy-init: constructing Resend at module top crashes `next build`'s
+// page-data collection when RESEND_API_KEY is unset. Same pattern as
+// lib/crm/email.ts. Real key comes from env_file at runtime.
+let _resend: Resend | null = null
+function getResend(): Resend {
+  return (_resend ??= new Resend(process.env.RESEND_API_KEY ?? 'test-no-api-key'))
+}
 
 // ─── Invite User ──────────────────────────────────────────────────────────────
 
@@ -53,7 +59,7 @@ export async function inviteUser(
 
   // Send invite email
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: process.env.RESEND_FROM_EMAIL ?? 'noreply@ebright.my',
       to: email,
       subject: 'You have been invited to Ebright CRM',
