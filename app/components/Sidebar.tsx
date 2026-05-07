@@ -24,12 +24,6 @@ const navigationItems = [
 export default function Sidebar({ sidebarOpen, onToggle, onCollapse }: SidebarProps) {
   const handleToggle = onToggle ?? onCollapse ?? (() => {});
 
-  const handleNavClick = () => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) {
-      handleToggle();
-    }
-  };
-
   return (
     <>
       {/* Fixed hamburger — always visible at top-left */}
@@ -43,33 +37,17 @@ export default function Sidebar({ sidebarOpen, onToggle, onCollapse }: SidebarPr
         </svg>
       </button>
 
-      {/* Mobile-only backdrop when drawer open */}
-      {sidebarOpen && (
-        <div
-          onClick={handleToggle}
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Sidebar:
-          - Mobile: fixed slide-in drawer over content (with backdrop)
-          - Desktop: inline column that pushes content via width animation
-      */}
+      {/* Sidebar panel */}
       <aside
-        className={`bg-white shadow-lg flex flex-col overflow-hidden transition-all duration-300
-          fixed inset-y-0 left-0 z-50 w-64
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-          md:static md:z-auto md:translate-x-0 md:shrink-0 md:h-auto
-          ${sidebarOpen ? "md:w-64" : "md:w-0"}
-        `}
+        className={`bg-white shadow-lg overflow-hidden transition-all duration-300 flex flex-col shrink-0 ${
+          sidebarOpen ? "w-64" : "w-0"
+        }`}
       >
         <nav className="p-6 pt-16 space-y-2 flex-1 overflow-y-auto">
           {navigationItems.map((item) => (
             <Link
               key={item.name}
               href={item.href}
-              onClick={handleNavClick}
               className="w-full text-left flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-colors text-gray-700 hover:bg-gray-100 whitespace-nowrap"
             >
               <span>{item.icon}</span>
