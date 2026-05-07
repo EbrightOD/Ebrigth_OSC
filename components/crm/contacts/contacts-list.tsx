@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-table'
 import { useContacts, useDeleteContact, type ContactListItem } from '@/hooks/crm/useContacts'
 import type { ContactsFilter } from '@/server/queries/contacts'
+import { useBranchContext } from '@/components/crm/branch-context'
 import { ContactModal } from './contact-modal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -230,7 +231,19 @@ export function ContactsList({
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignUserId, setAssignUserId] = useState('')
 
-  const { data, isLoading, isError } = useContacts(filter)
+  // Topbar branch picker — when admin selects a branch, scope the contacts
+  // list to that branch. Branch managers already get server-side scoping;
+  // for them this just stays in sync with their assigned branch.
+  const { selectedBranch } = useBranchContext()
+  const filterWithBranch = useMemo<ContactsFilter>(
+    () => ({
+      ...filter,
+      branchId: selectedBranch?.id ?? filter.branchId,
+    }),
+    [filter, selectedBranch?.id],
+  )
+
+  const { data, isLoading, isError } = useContacts(filterWithBranch)
   const deleteContact = useDeleteContact()
 
   // Debounced search
