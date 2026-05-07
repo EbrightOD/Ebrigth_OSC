@@ -48,6 +48,8 @@ interface StudentRow {
   enrollment_date: Date | string | null;
   grade_chapter: string | null;
   fa_progress_json: unknown;
+  guardian_name: string | null;
+  guardian_mobile: string | null;
 }
 
 function rowToStudent(row: StudentRow): Student | null {
@@ -63,10 +65,8 @@ function rowToStudent(row: StudentRow): Student | null {
     ageCategory: ageCategoryFromGrade(gc.grade),
     credit: gc.credit,
     faHistory: parseFaHistory(row.fa_progress_json, gc.grade),
-    // Parent contact lives in archived_students only — not in studentrecords.
-    // Left blank until that data lands on the live table.
-    parentName: "",
-    parentPhone: "",
+    parentName: row.guardian_name ?? "",
+    parentPhone: row.guardian_mobile ?? "",
     enrolmentDate: toIsoDate(row.enrollment_date),
     active: (row.status ?? "").toLowerCase() === "active",
   };
@@ -74,7 +74,8 @@ function rowToStudent(row: StudentRow): Student | null {
 
 export async function fetchAllStudents(): Promise<Student[]> {
   const { rows } = await pool.query<StudentRow>(
-    `SELECT id, name, status, branch, enrollment_date, grade_chapter, fa_progress_json
+    `SELECT id, name, status, branch, enrollment_date, grade_chapter, fa_progress_json,
+            guardian_name, guardian_mobile
        FROM studentrecords`
   );
   const students: Student[] = [];
