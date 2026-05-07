@@ -858,7 +858,10 @@ export function KanbanBoard({
       {/* Top actions bar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-700">
         <span className="text-xs text-slate-500 dark:text-slate-400">
-          {data?.stages?.reduce((acc, s) => acc + s.opportunities.length, 0) ?? 0} opportunities
+          {/* Count must match the cards rendered. Use filteredStages — which
+              has the week-filter and any other client-side filters applied —
+              not the raw `data` from the API. */}
+          {filteredStages.reduce((acc, s) => acc + s.opportunities.length, 0)} opportunities
         </span>
         <button
           type="button"
