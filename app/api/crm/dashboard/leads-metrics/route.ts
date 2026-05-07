@@ -12,6 +12,7 @@ import { auth } from '@/lib/crm/auth'
 import { prisma } from '@/lib/crm/db'
 import { isPreviewMode } from '@/lib/crm/preview-mode'
 import { clampToDisplayMin } from '@/lib/crm/display-cutoff'
+import { resolveBranchAccess } from '@/lib/crm/branch-access'
 
 async function resolveTenantId(): Promise<string | null> {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -180,6 +181,27 @@ export async function GET(req: NextRequest) {
     const tenantId = await resolveTenantId()
     if (!tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    // Resolve the caller's role + branch scope. Non-elevated users only ever
+    // see their own branch metrics in `main`; the regions + branches arrays
+    // come back empty so the UI hides those sections entirely.
+    const session = await auth.api.getSession({ headers: await headers() })
+    const access = session?.user?.id ? await resolveBranchAccess(session.user.id) : null
+    const isElevatedUser = access?.elevated ?? true   // API key callers treated as elevated
+
+    // Admin "view as branch": when an elevated user picks a specific branch
+    // in the topbar dropdown, the UI sends `?branchId=<id>` and we treat the
+    // request the same as if a branch manager for that branch were calling.
+    // This lets super admins inspect a branch without logging out.
+    const requestedBranchId = req.nextUrl.searchParams.get('branchId')
+    const viewAsBranch = isElevatedUser && requestedBranchId ? requestedBranchId : null
+
+    const elevated = isElevatedUser && !viewAsBranch
+    const allowedBranchIds = elevated
+      ? null
+      : viewAsBranch
+        ? [viewAsBranch]
+        : (access?.branchIds ?? [])
+
     const range = parseDateRange(req.nextUrl.searchParams)
     // Clamp the lower bound to the global display floor so this endpoint
     // stays consistent with the kanban + dashboard.
@@ -221,9 +243,15 @@ export async function GET(req: NextRequest) {
       categoryOrderByPipeline.set(s.pipelineId, bucket)
     }
 
-    // Fetch branches (just the ones we care about)
+    // Fetch branches. Elevated users get the full canonical list; non-elevated
+    // users only get the branches they're explicitly linked to. Even if those
+    // branches aren't in BRANCH_CODES, they show up in `main` (their stats)
+    // but never in the regional cards.
+    const branchWhere = elevated
+      ? { tenantId, name: { in: Object.keys(BRANCH_CODES) } }
+      : { tenantId, id: { in: allowedBranchIds ?? [] } }
     const branches = await prisma.crm_branch.findMany({
-      where: { tenantId, name: { in: Object.keys(BRANCH_CODES) } },
+      where: branchWhere,
       select: { id: true, name: true },
     })
 
@@ -326,16 +354,84 @@ export async function GET(req: NextRequest) {
       })
       .filter((x): x is BranchMetrics => !!x)
 
+    // ── Monthly trend (only for branch-scoped views) ─────────────────────────
+    // Build a 6-month rolling window ending on `to` so the line chart has
+    // enough span to be useful. Bucket each opp's createdAt by YYYY-MM and
+    // re-apply the same cumulative-stage logic used for the main block.
+    let byMonth: Array<{ month: string; NL: number; CT: number; SU: number; ENR: number }> = []
+    if (!elevated) {
+      const monthKey = (d: Date) => d.toISOString().slice(0, 7) // 'YYYY-MM'
+      const sixMonthsBack = new Date(to)
+      sixMonthsBack.setMonth(sixMonthsBack.getMonth() - 5)
+      sixMonthsBack.setDate(1)
+      sixMonthsBack.setHours(0, 0, 0, 0)
+
+      // Re-fetch for the wider window — `from`/`to` may be just "today".
+      const trendOpps = await prisma.crm_opportunity.findMany({
+        where: {
+          tenantId,
+          deletedAt: null,
+          createdAt: { gte: sixMonthsBack, lte: to },
+          branchId: { in: branches.map((b) => b.id) },
+        },
+        select: { branchId: true, stageId: true, createdAt: true },
+      })
+
+      const monthMap = new Map<string, { NL: number; CT: number; SU: number; ENR: number }>()
+      // Pre-seed every month so the chart shows zeros instead of gaps.
+      for (let m = 0; m < 6; m++) {
+        const d = new Date(sixMonthsBack)
+        d.setMonth(d.getMonth() + m)
+        monthMap.set(monthKey(d), { NL: 0, CT: 0, SU: 0, ENR: 0 })
+      }
+
+      for (const o of trendOpps) {
+        const key = monthKey(new Date(o.createdAt))
+        const bucket = monthMap.get(key)
+        if (!bucket) continue
+        const info = stageInfo.get(o.stageId)
+        if (!info) continue
+        const catOrders = categoryOrderByPipeline.get(info.pipelineId)
+        if (!catOrders) continue
+
+        bucket.NL += 1
+        if (catOrders.CT  !== undefined && info.order >= catOrders.CT)  bucket.CT  += 1
+        if (catOrders.SU  !== undefined && info.order >= catOrders.SU)  bucket.SU  += 1
+        if (catOrders.ENR !== undefined && info.order >= catOrders.ENR) bucket.ENR += 1
+      }
+
+      byMonth = Array.from(monthMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, v]) => ({ month, ...v }))
+    }
+
+    // Empty zero block — used in place of regional cards / branch lists for
+    // non-elevated users so the response shape stays the same but the UI
+    // can detect "nothing to render here" cheaply.
+    const empty: BranchMetrics = {
+      branchId: '', branchName: '', code: '',
+      ...zero(),
+    }
+
     return NextResponse.json({
       range: { from: from.toISOString(), to: to.toISOString() },
       main,
-      regions: { A: regionA, B: regionB, C: regionC },
-      branches: orderedBranches,
-      regionMap: {
-        A: REGIONS.A.map((n) => BRANCH_CODES[n] ?? n),
-        B: REGIONS.B.map((n) => BRANCH_CODES[n] ?? n),
-        C: REGIONS.C.map((n) => BRANCH_CODES[n] ?? n),
-      },
+      regions: elevated
+        ? { A: regionA, B: regionB, C: regionC }
+        : { A: empty, B: empty, C: empty },
+      branches: elevated ? orderedBranches : [],
+      regionMap: elevated
+        ? {
+            A: REGIONS.A.map((n) => BRANCH_CODES[n] ?? n),
+            B: REGIONS.B.map((n) => BRANCH_CODES[n] ?? n),
+            C: REGIONS.C.map((n) => BRANCH_CODES[n] ?? n),
+          }
+        : { A: [], B: [], C: [] },
+      elevated,
+      byMonth,
+      // Surface what branch the response is scoped to so the UI can label
+      // the "Your branch" block ("Viewing as Rimbayu" etc.).
+      scopedBranchName: elevated ? null : (branches[0]?.name ?? null),
     })
   } catch (e) {
     console.error('[GET leads-metrics]', e)

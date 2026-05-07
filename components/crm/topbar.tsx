@@ -127,7 +127,11 @@ function BranchSwitcher({ user }: { user: SessionUser }) {
     ? 'Loading…'
     : selectedBranch?.address ??
       (isAdmin
-        ? `Viewing all ${branches.length || '—'} branches`
+        // Admin who picked a specific branch is essentially impersonating the
+        // branch-manager view — clearer than "Viewing all 23 branches".
+        ? selectedBranch
+          ? `Viewing as ${selectedBranch.name.replace(/^\d+\s+/, '')}`
+          : `Viewing all ${branches.length || '—'} branches`
         : branches.length > 1
           ? `Viewing ${branches.length} accessible branches`
           : 'Your branch'
@@ -363,11 +367,16 @@ function GlobalSearch() {
 // ─── User menu ────────────────────────────────────────────────────────────────
 
 interface PreviewUser {
-  id: string
+  /** crm_auth_user.id, or null when the user only exists in HRMS yet. */
+  id: string | null
   email: string
   name: string | null
   tktRole: string | null
   crmRole: string | null
+  hrmsRole: string | null
+  hrmsBranchName: string | null
+  /** True if the user already has a crm_auth_user row. */
+  provisioned: boolean
 }
 
 function UserMenu({ user }: { user: SessionUser }) {
@@ -405,11 +414,14 @@ function UserMenu({ user }: { user: SessionUser }) {
     }
   }
 
-  async function impersonate(userId: string, name: string | null, email: string) {
+  async function impersonate(userId: string | null, name: string | null, email: string) {
+    // userId may be null for HRMS-only users — server provisions a crm_auth_user
+    // row from the email when that happens.
+    const payload = userId ? { userId } : { email }
     const res = await fetch('/api/crm/preview/login-as', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify(payload),
     })
     if (!res.ok) {
       toast.error('Failed to switch user')
@@ -535,32 +547,42 @@ function UserMenu({ user }: { user: SessionUser }) {
             ) : filteredUsers.length === 0 ? (
               <div className="py-6 text-center text-sm text-slate-500">No users found</div>
             ) : (
-              filteredUsers.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => impersonate(u.id, u.name, u.email)}
-                  disabled={u.id === user.id}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-40 dark:hover:bg-slate-700"
-                >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold dark:bg-indigo-900 dark:text-indigo-300">
-                    {getInitials(u.name, u.email)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
-                      {u.name ?? u.email}
+              filteredUsers.map((u) => {
+                // Prefer the CRM-side role when available; fall back to HRMS
+                // so HRMS-only users still display a role badge.
+                const roleLabel = u.tktRole ?? u.crmRole ?? u.hrmsRole
+                return (
+                  <button
+                    key={u.id ?? u.email}
+                    onClick={() => impersonate(u.id, u.name, u.email)}
+                    disabled={u.id !== null && u.id === user.id}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-40 dark:hover:bg-slate-700"
+                  >
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold dark:bg-indigo-900 dark:text-indigo-300">
+                      {getInitials(u.name, u.email)}
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-xs text-slate-500 dark:text-slate-400">{u.email}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                        {u.name ?? u.email}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-xs text-slate-500 dark:text-slate-400">{u.email}</span>
+                        {!u.provisioned && (
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0 text-[9px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            new
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  {(u.tktRole || u.crmRole) && (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                      {u.tktRole ?? u.crmRole}
-                    </span>
-                  )}
-                  {u.id === user.id && <Check className="h-3.5 w-3.5 text-indigo-500" />}
-                </button>
-              ))
+                    {roleLabel && (
+                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                        {roleLabel}
+                      </span>
+                    )}
+                    {u.id !== null && u.id === user.id && <Check className="h-3.5 w-3.5 text-indigo-500" />}
+                  </button>
+                )
+              })
             )}
           </div>
         </div>
