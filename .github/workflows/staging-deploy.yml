@@ -25,6 +25,8 @@ jobs:
             export ENCRYPTION_KEY='${{ secrets.ENCRYPTION_KEY }}'
             export DATABASE_URL='${{ secrets.DATABASE_URL }}'
             export CRM_PREVIEW_MODE='${{ secrets.CRM_PREVIEW_MODE }}'
+            export SHARED_SSO_SECRET='${{ secrets.SHARED_SSO_SECRET }}'
+            export INVENTORY_URL='${{ secrets.INVENTORY_URL }}'
             /home/deploy/deploy.sh osc
 
   smoke-tests:
