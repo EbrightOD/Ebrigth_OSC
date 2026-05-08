@@ -63,10 +63,11 @@ jobs:
       - name: Run Playwright smoke (unauth boundary only)
         run: npx playwright test --grep "API auth boundary"
         env:
-          # The staging container exposes the app on port 3000. Without
-          # the explicit port, requests hit port 80 (nothing there) and
-          # every route returns 404 instead of the expected 401.
-          BASE_URL: http://103.209.156.225:3000
+          # The staging container exposes the app on port 3003 (see
+          # docker-compose.yml on the deploy host). Without the explicit
+          # port, requests hit port 80 (nothing there) and every route
+          # returns 404 instead of the expected 401.
+          BASE_URL: http://103.209.156.225:3003
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
